@@ -56,24 +56,100 @@ export interface Subscription {
   updatedAt: string;
 }
 
-export interface PatternAlert {
-  id: string;
-  coupleId: string;
-  type: 'low_connection' | 'low_mood' | 'streak_achieved';
-  message: string;
-  suggestedAction: string;
-  isRead: boolean;
-  createdAt: string;
-}
+
 
 export interface GuidedExercise {
   id: string;
   title: string;
   description: string;
   duration: string;
-  category: 'connection' | 'stress_relief' | 'gratitude' | 'communication';
+  category: 'connection' | 'stress_relief' | 'gratitude' | 'communication' | 'intimacy' | 'conflict_resolution' | 'quality_time' | 'emotional_support';
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
   instructions: string[];
+  materialsNeeded: string[];
+  benefits: string[];
+  whenToUse?: string;
+  isActive: boolean;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExerciseSession {
+  id: string;
+  userId: string;
+  coupleId: string;
+  exerciseId: string;
+  completedAt: string;
+  durationMinutes?: number;
+  rating?: number;
+  notes?: string;
+  completedWithPartner: boolean;
+  createdAt: string;
+}
+
+export interface ExerciseRecommendation {
+  id: string;
+  userId: string;
+  coupleId: string;
+  exerciseId: string;
+  reason: string;
+  priority: number;
+  expiresAt: string;
+  isCompleted: boolean;
+  createdAt: string;
+}
+
+// Pattern Alerts System Types
+export type PatternAlertType = 'low_connection' | 'low_mood' | 'streak_achieved' | 'pattern_detected' | 'relationship_insight';
+
+export interface PatternAlert {
+  id: string;
+  coupleId: string;
+  userId: string;
+  type: PatternAlertType;
+  title: string;
+  message: string;
+  suggestedAction: string;
+  patternData?: any;
+  severity: 'low' | 'medium' | 'high';
+  isRead: boolean;
+  isDismissed: boolean;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PatternDetectionRule {
+  id: string;
+  ruleName: string;
+  ruleType: PatternAlertType;
+  description: string;
+  conditions: any;
+  isActive: boolean;
+  priority: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PatternAlertPreferences {
+  id: string;
+  userId: string;
+  alertType: PatternAlertType;
+  enabled: boolean;
+  notificationEnabled: boolean;
+  emailEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PatternDetectionResult {
+  shouldAlert: boolean;
+  alertType: PatternAlertType;
+  title: string;
+  message: string;
+  suggestedAction: string;
+  severity: 'low' | 'medium' | 'high';
+  patternData: any;
 }
 
 export type RootStackParamList = {
@@ -91,6 +167,7 @@ export type RootStackParamList = {
   Subscription: undefined;
   Settings: undefined;
   InvitePartner: undefined;
+  ExerciseDetail: { exerciseId: string };
 };
 
 export type MainTabParamList = {

@@ -10,6 +10,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Typography, Spacing, Layout } from '../../constants';
 import { auth, supabase } from '../../services/supabase';
+import { patternAlertsService } from '../../services/patternAlerts';
+import { guidedExercisesService } from '../../services/guidedExercises';
 
 const DashboardScreen = ({ navigation }: any) => {
 
@@ -31,6 +33,9 @@ const DashboardScreen = ({ navigation }: any) => {
   const [partnerCheckIns, setPartnerCheckIns] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
+  const [exerciseRecommendations, setExerciseRecommendations] = useState<any[]>([]);
+  const [coupleId, setCoupleId] = useState<string>('');
   
   // Fetch all dashboard data
   useEffect(() => {
@@ -62,6 +67,9 @@ const DashboardScreen = ({ navigation }: any) => {
             .single();
           
           setHasPartner(!!couple);
+          if (couple) {
+            setCoupleId(couple.id);
+          }
           
           // If user has a partner, get partner's name
           if (couple) {
@@ -154,6 +162,50 @@ const DashboardScreen = ({ navigation }: any) => {
           
           // Store partner check-ins separately for the partner section
           setPartnerCheckIns(partnerCheckIns);
+          
+          // Fetch pattern alerts and exercise recommendations if user has a partner
+          if (couple) {
+            try {
+              // Get active pattern alerts
+              const alerts = await patternAlertsService.getActiveAlerts(couple.id);
+              setActiveAlerts(alerts);
+              
+              // Get personalized exercise recommendations
+              const recommendations = await guidedExercisesService.getPersonalizedRecommendations(user.id, couple.id);
+              setExerciseRecommendations(recommendations);
+              
+              // Check for new patterns after check-ins
+              if (ownCheckIns && ownCheckIns.length > 0) {
+                const patterns = await patternAlertsService.checkForPatterns(couple.id, user.id);
+                if (patterns.length > 0) {
+                  // Create alerts for new patterns
+                  for (const pattern of patterns) {
+                    if (pattern.shouldAlert) {
+                      await patternAlertsService.createPatternAlert({
+                        coupleId: couple.id,
+                        userId: user.id,
+                        type: pattern.alertType,
+                        title: pattern.title,
+                        message: pattern.message,
+                        suggestedAction: pattern.suggestedAction,
+                        patternData: pattern.patternData,
+                        severity: pattern.severity,
+                        isRead: false,
+                        isDismissed: false,
+                        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+                      });
+                    }
+                  }
+                  
+                  // Refresh alerts after creating new ones
+                  const updatedAlerts = await patternAlertsService.getActiveAlerts(couple.id);
+                  setActiveAlerts(updatedAlerts);
+                }
+              }
+            } catch (error) {
+              console.error('Error fetching pattern alerts and recommendations:', error);
+            }
+          }
         }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -269,30 +321,88 @@ const DashboardScreen = ({ navigation }: any) => {
         {/* Active User Dashboard */}
         {(hasPartner || recentCheckIns.length > 0) && (
           <>
-            {/* Connection Score Card */}
+            {/* Compact Connection Score Card */}
             <View style={styles.scoreCard}>
               <LinearGradient
                 colors={['#8BC34A', '#689F38']}
                 style={styles.scoreGradient}
               >
-                <Text style={{ color: 'white', fontSize: 16, fontWeight: '500', marginBottom: 16, textAlign: 'center' }}>
-                  Your Connection Score
-                </Text>
-                <Text style={{ color: 'white', fontSize: 48, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' }}>
-                  {connectionScore || '--'}
-                </Text>
-                <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, marginBottom: 16, textAlign: 'center' }}>
-                  Based on your check-ins
-                </Text>
-                <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 }}>
-                  <Text style={{ color: 'white', fontSize: 14, fontWeight: '600', textAlign: 'center' }}>
-                    {connectionScore >= 8 ? 'Excellent' : connectionScore >= 6 ? 'Good' : connectionScore >= 4 ? 'Fair' : 'Start Today'}
-                  </Text>
+                <View style={styles.scoreContent}>
+                  <View style={styles.scoreLeft}>
+                    <Text style={styles.scoreTitle}>Your Connection Score</Text>
+                    <Text style={styles.scoreValue}>{connectionScore || '--'}</Text>
+                    <Text style={styles.scoreSubtitle}>Based on your check-ins</Text>
+                  </View>
+                  <View style={styles.scoreRight}>
+                    <View style={styles.scoreBadge}>
+                      <Text style={styles.scoreBadgeText}>
+                        {connectionScore >= 8 ? 'Excellent' : connectionScore >= 6 ? 'Good' : connectionScore >= 4 ? 'Fair' : 'Start Today'}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               </LinearGradient>
             </View>
 
-            {/* Today's Check-In Card */}
+            {/* Pattern Alerts Section */}
+            {activeAlerts.length > 0 && (
+              <View style={styles.alertsSection}>
+                <Text style={styles.sectionTitle}>Pattern Alerts</Text>
+                {activeAlerts.map((alert, index) => (
+                  <View key={alert.id} style={[
+                    styles.alertCard,
+                    alert.severity === 'high' && styles.highSeverityAlert,
+                    alert.severity === 'medium' && styles.mediumSeverityAlert,
+                    alert.severity === 'low' && styles.lowSeverityAlert,
+                  ]}>
+                    <View style={styles.alertHeader}>
+                      <Text style={styles.alertTitle}>{alert.title}</Text>
+                      <View style={[
+                        styles.severityBadge,
+                        alert.severity === 'high' && styles.highSeverityBadge,
+                        alert.severity === 'medium' && styles.mediumSeverityBadge,
+                        alert.severity === 'low' && styles.lowSeverityBadge,
+                      ]}>
+                        <Text style={styles.severityText}>{alert.severity}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.alertMessage}>{alert.message}</Text>
+                    <Text style={styles.alertAction}>{alert.suggestedAction}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Exercise Recommendations Section */}
+            {exerciseRecommendations.length > 0 && (
+              <View style={styles.recommendationsSection}>
+                <Text style={styles.sectionTitle}>Recommended Exercises</Text>
+                {exerciseRecommendations.slice(0, 3).map((rec, index) => (
+                  <TouchableOpacity
+                    key={rec.id}
+                    style={styles.recommendationCard}
+                    onPress={() => navigation.navigate('ExerciseDetail', { exerciseId: rec.exerciseId })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.recommendationContent}>
+                      <View style={styles.recommendationLeft}>
+                        <Text style={styles.recommendationTitle}>Exercise #{index + 1}</Text>
+                        <Text style={styles.recommendationReason}>{rec.reason}</Text>
+                        <Text style={styles.recommendationPriority}>Priority: {rec.priority}</Text>
+                      </View>
+                      <View style={styles.recommendationAction}>
+                        <Text style={styles.recommendationButton}>Start</Text>
+                        <Text style={styles.recommendationArrow}>→</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+
+
+            {/* Simple Daily Check-In Card */}
             <TouchableOpacity
               style={styles.checkInCard}
               onPress={() => navigation.navigate('CheckIn')}
@@ -301,23 +411,46 @@ const DashboardScreen = ({ navigation }: any) => {
               <View style={styles.checkInContent}>
                 <View style={styles.checkInLeft}>
                   <View style={styles.checkInIconContainer}>
-                    <Text style={{ fontSize: 20, color: '#8BC34A' }}>💝</Text>
+                    <Text style={{ fontSize: 24, color: '#8BC34A' }}>💝</Text>
                   </View>
                   <View style={styles.checkInTextContainer}>
-                    <Text style={{ color: 'black', fontSize: 18, fontWeight: '600', marginBottom: 4 }}>
+                    <Text style={{ color: 'black', fontSize: 20, fontWeight: '600', marginBottom: 6 }}>
                       Daily Check-In
                     </Text>
-                    <Text style={{ color: '#6B7280', fontSize: 14, lineHeight: 18 }}>
+                    <Text style={{ color: '#6B7280', fontSize: 16, lineHeight: 22 }}>
                       How's your connection today?
                     </Text>
                   </View>
                 </View>
                 <View style={styles.checkInAction}>
-                                      <Text style={{ fontSize: 16, color: '#8BC34A', fontWeight: '600' }}>Start</Text>
-                    <Text style={{ fontSize: 16, color: '#8BC34A' }}>→</Text>
+                  <Text style={{ fontSize: 18, color: '#8BC34A', fontWeight: '600' }}>Start</Text>
+                  <Text style={{ fontSize: 18, color: '#8BC34A' }}>→</Text>
                 </View>
               </View>
             </TouchableOpacity>
+
+            {/* Small Insights Card - Simple & Helpful */}
+            {hasPartner && activeAlerts.length === 0 && exerciseRecommendations.length === 0 && (
+              <View style={styles.insightsCard}>
+                <View style={styles.insightsContent}>
+                  <View style={styles.insightsLeft}>
+                    <Text style={styles.insightsEmoji}>🔍</Text>
+                    <View style={styles.insightsText}>
+                      <Text style={styles.insightsTitle}>Unlock Your Insights</Text>
+                      <Text style={styles.insightsSubtitle}>
+                        Keep checking in daily to see patterns and get personalized recommendations
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.insightsButton}
+                    onPress={() => navigation.navigate('CheckIn')}
+                  >
+                    <Text style={styles.insightsButtonText}>Check In</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
             {/* Partner Status Card */}
             {!hasPartner ? (
@@ -510,57 +643,6 @@ const styles = StyleSheet.create({
   scoreGradient: {
     padding: Layout.padding,
     alignItems: 'center',
-  },
-  scoreHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  scoreIconContainer: {
-    marginRight: 12,
-  },
-  scoreIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scoreIconText: {
-    fontSize: 16,
-    color: 'white',
-  },
-  scoreLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: 'white',
-    opacity: 0.9,
-  },
-  scoreBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 9999,
-    marginTop: 12,
-  },
-  scoreBadgeText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'white',
-  },
-
-  scoreValue: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 8,
-  },
-  scoreStatus: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: 'white',
-    opacity: 0.9,
   },
   checkInCard: {
     backgroundColor: Colors.surface,
@@ -876,6 +958,246 @@ const styles = StyleSheet.create({
     color: Colors.textInverse,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.semiBold,
+  },
+
+  // Pattern Alerts Styles
+  alertsSection: {
+    marginBottom: 24,
+  },
+  alertCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderLeftWidth: 4,
+    shadowColor: 'rgba(0, 0, 0, 0.05)',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  highSeverityAlert: {
+    borderLeftColor: '#ef4444',
+    backgroundColor: '#fef2f2',
+  },
+  mediumSeverityAlert: {
+    borderLeftColor: '#f59e0b',
+    backgroundColor: '#fffbeb',
+  },
+  lowSeverityAlert: {
+    borderLeftColor: '#10b981',
+    backgroundColor: '#f0fdf4',
+  },
+  alertHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  alertTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'black',
+    flex: 1,
+  },
+  severityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  highSeverityBadge: {
+    backgroundColor: '#fee2e2',
+  },
+  mediumSeverityBadge: {
+    backgroundColor: '#fef3c7',
+  },
+  lowSeverityBadge: {
+    backgroundColor: '#d1fae5',
+  },
+  severityText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  highSeverityText: {
+    color: '#dc2626',
+  },
+  mediumSeverityText: {
+    color: '#d97706',
+  },
+  lowSeverityText: {
+    color: '#059669',
+  },
+  alertMessage: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  alertAction: {
+    fontSize: 14,
+    color: '#059669',
+    fontWeight: '500',
+    fontStyle: 'italic',
+  },
+
+  // Exercise Recommendations Styles
+  recommendationsSection: {
+    marginBottom: 24,
+  },
+  recommendationCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+    shadowColor: 'rgba(0, 0, 0, 0.05)',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  recommendationContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  recommendationLeft: {
+    flex: 1,
+  },
+  recommendationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'black',
+    marginBottom: 4,
+  },
+  recommendationReason: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  recommendationPriority: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  recommendationAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  recommendationButton: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#8BC34A',
+    marginRight: 8,
+  },
+  recommendationArrow: {
+    fontSize: 16,
+    color: '#8BC34A',
+  },
+
+
+
+
+
+
+  // Compact Score Card Styles
+  scoreContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  scoreLeft: {
+    flex: 1,
+  },
+  scoreTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  scoreValue: {
+    color: 'white',
+    fontSize: 36,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  scoreSubtitle: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+  },
+  scoreRight: {
+    alignItems: 'center',
+  },
+  scoreBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  scoreBadgeText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Insights Card Styles
+  insightsCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+    shadowColor: 'rgba(0, 0, 0, 0.05)',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  insightsContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  insightsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  insightsEmoji: {
+    fontSize: 24,
+    marginRight: 16,
+  },
+  insightsText: {
+    flex: 1,
+  },
+  insightsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'black',
+    marginBottom: 4,
+  },
+  insightsSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  insightsButton: {
+    backgroundColor: '#8BC34A',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginLeft: 16,
+  },
+  insightsButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
 });

@@ -21,6 +21,7 @@ import ReportsScreen from '../screens/main/ReportsScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 import SubscriptionScreen from '../screens/main/SubscriptionScreen';
 import InvitePartnerScreen from '../screens/main/InvitePartnerScreen';
+import ExerciseDetailScreen from '../screens/main/ExerciseDetailScreen';
 
 const Stack = createStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -311,6 +312,7 @@ const AppNavigator = () => {
             <Stack.Screen name="Main" component={MainTabNavigator} />
             <Stack.Screen name="Subscription" component={SubscriptionScreen} />
             <Stack.Screen name="InvitePartner" component={InvitePartnerScreen} />
+            <Stack.Screen name="ExerciseDetail" component={ExerciseDetailScreen} />
           </>
         )}
       </Stack.Navigator>
