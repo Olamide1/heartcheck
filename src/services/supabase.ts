@@ -237,7 +237,24 @@ export const db = {
         .select('*')
         .or(`partner1_id.eq.${userId},partner2_id.eq.${userId}`)
         .single();
-      return { data, error };
+      
+      if (error) {
+        return { data: null, error };
+      }
+      
+      if (data) {
+        // Map snake_case database fields to camelCase TypeScript interface
+        const mappedCouple = {
+          id: data.id,
+          partner1Id: data.partner1_id,
+          partner2Id: data.partner2_id,
+          createdAt: data.created_at,
+          updatedAt: data.updated_at,
+        };
+        return { data: mappedCouple, error: null };
+      }
+      
+      return { data: null, error };
     } catch (error) {
       return { data: null, error: { message: 'Database operation failed' } };
     }
@@ -250,12 +267,48 @@ export const db = {
     }
     
     try {
+      // Map camelCase fields to snake_case database columns
+      const dbCheckInData = {
+        user_id: checkInData.userId,
+        couple_id: checkInData.coupleId,
+        date: checkInData.date,
+        mood_rating: checkInData.moodRating,
+        connection_rating: checkInData.connectionRating,
+        reflection: checkInData.reflection,
+        is_shared: checkInData.isShared,
+      };
+
+      console.log('Inserting check-in with mapped data:', dbCheckInData);
+
       const { data, error } = await supabase
         .from('check_ins')
-        .insert([checkInData])
+        .insert([dbCheckInData])
         .select()
         .single();
-      return { data, error };
+      
+      if (error) {
+        console.error('Supabase insert error:', error);
+        return { data: null, error };
+      }
+      
+      if (data) {
+        // Map snake_case database fields back to camelCase TypeScript interface
+        const mappedCheckIn = {
+          id: data.id,
+          userId: data.user_id,
+          coupleId: data.couple_id,
+          date: data.date,
+          moodRating: data.mood_rating,
+          connectionRating: data.connection_rating,
+          reflection: data.reflection,
+          isShared: data.is_shared,
+          createdAt: data.created_at,
+          updatedAt: data.updated_at,
+        };
+        return { data: mappedCheckIn, error: null };
+      }
+      
+      return { data: null, error: { message: 'No data returned from insert' } };
     } catch (error) {
       return { data: null, error: { message: 'Database operation failed' } };
     }

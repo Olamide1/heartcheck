@@ -28,7 +28,9 @@ const DashboardScreen = ({ navigation }: any) => {
   const [partnerName, setPartnerName] = useState<string>('');
   const [connectionScore, setConnectionScore] = useState<number>(0);
   const [recentCheckIns, setRecentCheckIns] = useState<any[]>([]);
+  const [partnerCheckIns, setPartnerCheckIns] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   
   // Fetch all dashboard data
   useEffect(() => {
@@ -38,6 +40,7 @@ const DashboardScreen = ({ navigation }: any) => {
         const { user, error: authError } = await auth.getCurrentUser();
         
         if (user) {
+          setCurrentUser(user);
           // Fetch user profile
           const { data: profile, error: profileError } = await supabase
             .from('users')
@@ -76,21 +79,46 @@ const DashboardScreen = ({ navigation }: any) => {
             setPartnerName('');
           }
           
-          // Fetch recent check-ins
-          const { data: checkIns, error: checkInsError } = await supabase
+          // Fetch user's own check-ins
+          const { data: ownCheckIns, error: ownCheckInsError } = await supabase
             .from('check_ins')
             .select('*')
             .eq('user_id', user.id)
             .order('created_at', { ascending: false })
             .limit(3);
           
-          if (checkIns) {
-            setRecentCheckIns(checkIns);
-            // Calculate average connection score
-            const totalScore = checkIns.reduce((sum, checkIn) => sum + (checkIn.connection_rating || 0), 0);
-            const avgScore = checkIns.length > 0 ? totalScore / checkIns.length : 0;
-            setConnectionScore(Math.round(avgScore * 10) / 10); // Round to 1 decimal
+          // Fetch partner's shared check-ins if user has a partner
+          let partnerCheckIns = [];
+          if (couple) {
+            const partnerId = couple.partner1_id === user.id ? couple.partner2_id : couple.partner1_id;
+            const { data: sharedCheckIns, error: sharedCheckInsError } = await supabase
+              .from('check_ins')
+              .select('*')
+              .eq('user_id', partnerId)
+              .eq('is_shared', true)
+              .order('created_at', { ascending: false })
+              .limit(3);
+            
+            if (sharedCheckIns) {
+              partnerCheckIns = sharedCheckIns;
+            }
           }
+          
+          // Set user's own check-ins for the main dashboard
+          if (ownCheckIns && ownCheckIns.length > 0) {
+            setRecentCheckIns(ownCheckIns);
+            
+            // Calculate average connection score from user's own check-ins
+            const totalScore = ownCheckIns.reduce((sum, checkIn) => sum + (checkIn.connection_rating || 0), 0);
+            const avgScore = totalScore / ownCheckIns.length;
+            setConnectionScore(Math.round(avgScore * 10) / 10); // Round to 1 decimal
+          } else {
+            setRecentCheckIns([]);
+            setConnectionScore(0);
+          }
+          
+          // Store partner check-ins separately for the partner section
+          setPartnerCheckIns(partnerCheckIns);
         }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -98,6 +126,7 @@ const DashboardScreen = ({ navigation }: any) => {
         setHasPartner(false);
         setConnectionScore(0);
         setRecentCheckIns([]);
+        setPartnerCheckIns([]);
       } finally {
         setIsLoading(false);
       }
@@ -289,6 +318,40 @@ const DashboardScreen = ({ navigation }: any) => {
                     {partnerName ? `You're now tracking your relationship with ${partnerName}` : "You're now tracking your relationship together"}
                   </Text>
                 </View>
+              </View>
+            )}
+            
+            {/* Partner's Shared Check-ins - Show when user has partner */}
+            {hasPartner && partnerCheckIns.length > 0 && (
+              <View style={{ backgroundColor: '#F0F9FF', padding: 16, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: '#BFDBFE' }}>
+                <Text style={{ fontSize: 16, fontWeight: '600', color: '#1E40AF', marginBottom: 12, textAlign: 'center' }}>
+                  {partnerName ? `${partnerName}'s Recent Check-ins` : "Partner's Recent Check-ins"}
+                </Text>
+                {partnerCheckIns
+                  .slice(0, 2)
+                  .map((checkIn, index) => (
+                    <View key={checkIn.id || index} style={{ backgroundColor: 'white', borderRadius: 8, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#DBEAFE' }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#6B7280' }}>
+                          {new Date(checkIn.created_at).toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric' 
+                          })}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '500', color: '#059669' }}>
+                            😊 {checkIn.mood_rating}/10
+                          </Text>
+                          <Text style={{ fontSize: 12, fontWeight: '500', color: '#059669' }}>
+                            💕 {checkIn.connection_rating}/10
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={{ fontSize: 14, color: '#374151', lineHeight: 20 }}>
+                        {checkIn.reflection}
+                      </Text>
+                    </View>
+                  ))}
               </View>
             )}
           </>
@@ -776,6 +839,7 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.semiBold,
   },
+
 });
 
 export default DashboardScreen;
