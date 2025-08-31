@@ -80,7 +80,7 @@ const DashboardScreen = ({ navigation }: any) => {
           }
           
           // Fetch user's own check-ins
-          const { data: ownCheckIns, error: ownCheckInsError } = await supabase
+          const { data: ownCheckInsRaw, error: ownCheckInsError } = await supabase
             .from('check_ins')
             .select('*')
             .eq('user_id', user.id)
@@ -88,10 +88,10 @@ const DashboardScreen = ({ navigation }: any) => {
             .limit(3);
           
           // Fetch partner's shared check-ins if user has a partner
-          let partnerCheckIns = [];
+          let partnerCheckIns: any[] = [];
           if (couple) {
             const partnerId = couple.partner1_id === user.id ? couple.partner2_id : couple.partner1_id;
-            const { data: sharedCheckIns, error: sharedCheckInsError } = await supabase
+            const { data: sharedCheckInsRaw, error: sharedCheckInsError } = await supabase
               .from('check_ins')
               .select('*')
               .eq('user_id', partnerId)
@@ -99,19 +99,54 @@ const DashboardScreen = ({ navigation }: any) => {
               .order('created_at', { ascending: false })
               .limit(3);
             
-            if (sharedCheckIns) {
-              partnerCheckIns = sharedCheckIns;
+            if (sharedCheckInsRaw) {
+              // Map partner check-ins to TypeScript interface
+              partnerCheckIns = sharedCheckInsRaw.map(checkIn => ({
+                id: checkIn.id,
+                userId: checkIn.user_id,
+                coupleId: checkIn.couple_id,
+                date: checkIn.date,
+                moodRating: checkIn.mood_rating,
+                connectionRating: checkIn.connection_rating,
+                reflection: checkIn.reflection,
+                isShared: checkIn.is_shared,
+                createdAt: checkIn.created_at,
+                updatedAt: checkIn.updated_at,
+              }));
             }
           }
+          
+          // Map user check-ins to TypeScript interface (same as Reports)
+          const ownCheckIns = ownCheckInsRaw?.map(checkIn => ({
+            id: checkIn.id,
+            userId: checkIn.user_id,
+            coupleId: checkIn.couple_id,
+            date: checkIn.date,
+            moodRating: checkIn.mood_rating,
+            connectionRating: checkIn.connection_rating,
+            reflection: checkIn.reflection,
+            isShared: checkIn.is_shared,
+            createdAt: checkIn.created_at,
+            updatedAt: checkIn.updated_at,
+          })) || [];
           
           // Set user's own check-ins for the main dashboard
           if (ownCheckIns && ownCheckIns.length > 0) {
             setRecentCheckIns(ownCheckIns);
             
-            // Calculate average connection score from user's own check-ins
-            const totalScore = ownCheckIns.reduce((sum, checkIn) => sum + (checkIn.connection_rating || 0), 0);
+            // Calculate average connection score from user's own check-ins (personal score)
+            const totalScore = ownCheckIns.reduce((sum, checkIn) => sum + (checkIn.connectionRating || 0), 0);
             const avgScore = totalScore / ownCheckIns.length;
             setConnectionScore(Math.round(avgScore * 10) / 10); // Round to 1 decimal
+            
+            console.log('Dashboard - Personal Connection score calculation:', {
+              totalScore,
+              count: ownCheckIns.length,
+              avgScore,
+              roundedScore: Math.round(avgScore * 10) / 10,
+              checkIns: ownCheckIns.map(c => ({ date: c.date, connectionRating: c.connectionRating })),
+              note: 'This is the user\'s personal connection score, not the relationship average'
+            });
           } else {
             setRecentCheckIns([]);
             setConnectionScore(0);
@@ -241,10 +276,13 @@ const DashboardScreen = ({ navigation }: any) => {
                 style={styles.scoreGradient}
               >
                 <Text style={{ color: 'white', fontSize: 16, fontWeight: '500', marginBottom: 16, textAlign: 'center' }}>
-                  Connection Score
+                  Your Connection Score
                 </Text>
                 <Text style={{ color: 'white', fontSize: 48, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' }}>
                   {connectionScore || '--'}
+                </Text>
+                <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, marginBottom: 16, textAlign: 'center' }}>
+                  Based on your check-ins
                 </Text>
                 <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 }}>
                   <Text style={{ color: 'white', fontSize: 14, fontWeight: '600', textAlign: 'center' }}>
@@ -333,17 +371,17 @@ const DashboardScreen = ({ navigation }: any) => {
                     <View key={checkIn.id || index} style={{ backgroundColor: 'white', borderRadius: 8, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#DBEAFE' }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <Text style={{ fontSize: 14, fontWeight: '500', color: '#6B7280' }}>
-                          {new Date(checkIn.created_at).toLocaleDateString('en-US', { 
+                          {new Date(checkIn.createdAt).toLocaleDateString('en-US', { 
                             month: 'short', 
                             day: 'numeric' 
                           })}
                         </Text>
                         <View style={{ flexDirection: 'row', gap: 12 }}>
                           <Text style={{ fontSize: 12, fontWeight: '500', color: '#059669' }}>
-                            😊 {checkIn.mood_rating}/10
+                            😊 {checkIn.moodRating}/10
                           </Text>
                           <Text style={{ fontSize: 12, fontWeight: '500', color: '#059669' }}>
-                            💕 {checkIn.connection_rating}/10
+                            💕 {checkIn.connectionRating}/10
                           </Text>
                         </View>
                       </View>
@@ -380,13 +418,13 @@ const DashboardScreen = ({ navigation }: any) => {
               >
                 <View style={styles.checkInDate}>
                   <Text style={{ color: 'black', fontSize: 16, fontWeight: '500' }}>
-                    {new Date(checkIn.created_at).toLocaleDateString('en-US', { 
+                    {new Date(checkIn.createdAt).toLocaleDateString('en-US', { 
                       month: 'short', 
                       day: 'numeric' 
                     })}
                   </Text>
                   <Text style={{ color: '#8BC34A', fontSize: 18, fontWeight: '600' }}>
-                    {checkIn.connection_rating || '--'}
+                    {checkIn.connectionRating || '--'}
                   </Text>
                 </View>
                 <Text style={{ color: 'black', fontSize: 16, lineHeight: 22 }}>
@@ -394,10 +432,10 @@ const DashboardScreen = ({ navigation }: any) => {
                 </Text>
                 <View style={styles.checkInMeta}>
                   <Text style={{ color: '#6B7280', fontSize: 12 }}>
-                    Mood: {checkIn.mood_rating || '--'}/10
+                    Mood: {checkIn.moodRating || '--'}/10
                   </Text>
                   <Text style={{ color: '#6B7280', fontSize: 12 }}>
-                    {checkIn.is_shared ? 'Shared with partner' : 'Private'}
+                    {checkIn.isShared ? 'Shared with partner' : 'Private'}
                   </Text>
                 </View>
               </TouchableOpacity>
