@@ -5,6 +5,8 @@ export interface User {
   nickname?: string;
   relationshipStartDate?: string | null;
   timezone: string;
+  notificationsEnabled: boolean;
+  dailyReminderTime: string;
   createdAt: string;
   updatedAt: string;
 }

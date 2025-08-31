@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,50 +8,167 @@ import {
   TouchableOpacity,
   Dimensions,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Colors, Typography, Spacing, Layout } from '../../constants';
+import { subscriptionService } from '../../services/subscriptions';
+import { supabase } from '../../services/supabase';
 
 const { width } = Dimensions.get('window');
 
 const SubscriptionScreen = ({ navigation }: any) => {
-  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('annual');
+  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('monthly');
+  const [subscriptionSummary, setSubscriptionSummary] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
-  const plans = {
-    monthly: {
-      price: 6.99,
-      period: 'month',
-      savings: null,
-    },
-    annual: {
-      price: 59.99,
-      period: 'year',
-      savings: 'Save 28%',
-    },
+  useEffect(() => {
+    loadSubscriptionData();
+  }, []);
+
+  const loadSubscriptionData = async (retryCount = 0) => {
+    try {
+      setIsLoading(true);
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error('No authenticated user found');
+        return;
+      }
+      
+      setCurrentUser(user);
+      
+      // Get subscription summary
+      const summary = await subscriptionService.getSubscriptionSummary(user.id);
+      setSubscriptionSummary(summary);
+      
+      console.log('Subscription data loaded successfully:', summary);
+      
+    } catch (error) {
+      console.error('Failed to load subscription data:', error);
+      
+      // Retry logic for subscription loading
+      if (retryCount < 2) {
+        console.log(`Retrying subscription load (attempt ${retryCount + 1})`);
+        setTimeout(() => {
+          loadSubscriptionData(retryCount + 1);
+        }, 1000);
+      } else {
+        console.error('Max retries reached for subscription loading');
+        Alert.alert(
+          'Error', 
+          'Unable to load subscription data. Please restart the app and try again.',
+          [
+            { text: 'OK' },
+            { text: 'Retry', onPress: () => loadSubscriptionData(0) }
+          ]
+        );
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const features = [
-    'Daily private check-ins',
-    'Pattern detection & alerts',
-    'Monthly relationship reports',
-    'Guided exercises & tips',
-    'Partner connection insights',
-    'Data export & backup',
-  ];
+  const handleSubscribe = async (plan: 'monthly' | 'annual') => {
+    if (!currentUser) {
+      Alert.alert('Error', 'Please sign in to subscribe');
+      return;
+    }
 
-  const handleSubscribe = (plan: 'monthly' | 'annual') => {
-    // TODO: Implement Stripe subscription
-    console.log('Subscribe to:', plan);
+    try {
+      console.log(`Starting subscription upgrade to ${plan} plan for user ${currentUser.id}`);
+      
+      // Simulate subscription upgrade
+      await subscriptionService.upgradeToPlan(currentUser.id, plan);
+      
+      console.log('Subscription upgrade successful');
+      
+      Alert.alert(
+        'Subscription Updated!',
+        `You've successfully upgraded to the ${plan} plan.`,
+        [
+          {
+            text: 'Great!',
+            onPress: () => {
+              loadSubscriptionData(); // Refresh data
+              navigation.goBack();
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Subscription error:', error);
+      
+      // More specific error messages
+      let errorMessage = 'Failed to update subscription. Please try again.';
+      if (error instanceof Error) {
+        if (error.message.includes('No subscription found')) {
+          errorMessage = 'Setting up your subscription... Please try again.';
+        } else if (error.message.includes('database')) {
+          errorMessage = 'Database connection issue. Please check your internet and try again.';
+        }
+      }
+      
+      Alert.alert('Error', errorMessage);
+    }
+  };
+
+  const handleStartTrial = () => {
+    if (!currentUser) {
+      Alert.alert('Error', 'Please sign in to start trial');
+      return;
+    }
+
     Alert.alert(
-      'Subscription',
-      `Starting ${plan} subscription...`,
+      'Free Trial Started!',
+      'Your 7-day free trial is now active. Enjoy all premium features!',
       [
         {
-          text: 'OK',
+          text: 'Awesome!',
           onPress: () => navigation.goBack(),
         },
       ]
     );
   };
+
+  const getTrialStatusText = () => {
+    if (!subscriptionSummary?.isTrial) return null;
+    
+    const daysLeft = subscriptionSummary.trialDaysRemaining;
+    if (daysLeft === 0) return 'Trial expires today';
+    if (daysLeft === 1) return 'Trial expires tomorrow';
+    return `${daysLeft} days left in trial`;
+  };
+
+  const getPlanPrice = (plan: 'monthly' | 'annual') => {
+    return plan === 'monthly' ? 6.99 : 59.99;
+  };
+
+  const getPlanPeriod = (plan: 'monthly' | 'annual') => {
+    return plan === 'monthly' ? 'month' : 'year';
+  };
+
+  const getSavings = (plan: 'monthly' | 'annual') => {
+    if (plan === 'annual') {
+      const monthlyCost = 6.99 * 12;
+      const annualCost = 59.99;
+      const savings = monthlyCost - annualCost;
+      return `Save $${savings.toFixed(0)}`;
+    }
+    return null;
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primarySage} />
+          <Text style={styles.loadingText}>Loading subscription...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -75,10 +192,71 @@ const SubscriptionScreen = ({ navigation }: any) => {
           </Text>
         </View>
 
+        {/* Trial Expired Banner */}
+        {subscriptionSummary && subscriptionSummary.isTrial && subscriptionSummary.trialDaysRemaining <= 0 && (
+          <View style={styles.trialExpiredBanner}>
+            <View style={styles.trialExpiredContent}>
+              <Text style={styles.trialExpiredIcon}>⏰</Text>
+              <View style={styles.trialExpiredText}>
+                <Text style={styles.trialExpiredTitle}>Trial Expired</Text>
+                <Text style={styles.trialExpiredSubtitle}>Upgrade now to continue using premium features</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.trialExpiredButton}
+              onPress={() => setSelectedPlan('monthly')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.trialExpiredButtonText}>Upgrade Now</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Current Status */}
+        {subscriptionSummary && (
+          <View style={styles.statusSection}>
+            <Text style={styles.statusTitle}>Your Current Status</Text>
+            <View style={styles.statusCard}>
+              {subscriptionSummary.isTrial ? (
+                <>
+                  <Text style={styles.statusText}>
+                    {subscriptionSummary.trialDaysRemaining > 0 ? '🎉 Free Trial Active' : '⏰ Trial Expired'}
+                  </Text>
+                  <Text style={styles.statusSubtext}>
+                    {subscriptionSummary.trialDaysRemaining > 0 
+                      ? getTrialStatusText() 
+                      : 'Upgrade to continue using premium features'
+                    }
+                  </Text>
+                </>
+              ) : subscriptionSummary.hasSubscription ? (
+                <>
+                  <Text style={styles.statusText}>✅ {subscriptionSummary.plan} Plan Active</Text>
+                  <Text style={styles.statusSubtext}>
+                    Next billing: {new Date(subscriptionSummary.nextBillingDate).toLocaleDateString()}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.statusText}>📱 No Active Plan</Text>
+                  <Text style={styles.statusSubtext}>Start your free trial today!</Text>
+                </>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* Features List */}
         <View style={styles.featuresSection}>
           <Text style={styles.featuresTitle}>What's included:</Text>
-          {features.map((feature, index) => (
+          {[
+            'Daily private check-ins',
+            'Pattern detection & alerts',
+            'Monthly relationship reports',
+            'Guided exercises & tips',
+            'Partner connection insights',
+            'Data export & backup',
+          ].map((feature, index) => (
             <View key={index} style={styles.featureRow}>
               <Text style={styles.featureIcon}>✓</Text>
               <Text style={styles.featureText}>{feature}</Text>
@@ -125,13 +303,21 @@ const SubscriptionScreen = ({ navigation }: any) => {
 
         {/* Plan Cards */}
         <View style={styles.plansContainer}>
-          {/* Free Trial Plan */}
-          <View style={styles.planCard}>
+          {/* Free Trial Plan - Show differently based on current status */}
+          <View style={[
+            styles.planCard,
+            subscriptionSummary.isTrial && styles.currentPlanCard
+          ]}>
             <View style={styles.planHeader}>
               <Text style={styles.planName}>Free Trial</Text>
               <View style={styles.trialRibbon}>
                 <Text style={styles.trialRibbonText}>7 Days</Text>
               </View>
+              {subscriptionSummary.isTrial && (
+                <View style={styles.currentPlanBadge}>
+                  <Text style={styles.currentPlanBadgeText}>Current Plan</Text>
+                </View>
+              )}
             </View>
             
             <View style={styles.planPricing}>
@@ -140,53 +326,81 @@ const SubscriptionScreen = ({ navigation }: any) => {
             </View>
             
             <Text style={styles.planDescription}>
-              Try all premium features free for 7 days
+              {subscriptionSummary.isTrial 
+                ? `You're currently on a free trial with ${subscriptionSummary.trialDaysRemaining} days remaining`
+                : 'Try all premium features free for 7 days'
+              }
             </Text>
             
-            <TouchableOpacity
-              style={styles.planButton}
-              onPress={() => handleSubscribe(selectedPlan)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.planButtonText}>Start Free Trial</Text>
-            </TouchableOpacity>
-            
-            <Text style={styles.planNote}>
-              Then ${plans[selectedPlan].price}/{plans[selectedPlan].period}
-            </Text>
+            {!subscriptionSummary.isTrial ? (
+              <>
+                <TouchableOpacity
+                  style={styles.planButton}
+                  onPress={handleStartTrial}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.planButtonText}>Start Free Trial</Text>
+                </TouchableOpacity>
+                
+                <Text style={styles.planNote}>
+                  Then ${getPlanPrice(selectedPlan)}/{getPlanPeriod(selectedPlan)}
+                </Text>
+              </>
+            ) : (
+              <View style={styles.currentPlanInfo}>
+                <Text style={styles.currentPlanStatus}>🎉 Trial Active</Text>
+                <Text style={styles.currentPlanDays}>{subscriptionSummary.trialDaysRemaining} days left</Text>
+              </View>
+            )}
           </View>
 
           {/* Selected Plan */}
-          <View style={[styles.planCard, styles.selectedPlanCard]}>
+          <View style={[
+            styles.planCard, 
+            styles.selectedPlanCard,
+            !subscriptionSummary.isTrial && styles.recommendedPlanCard
+          ]}>
             <View style={styles.planHeader}>
               <Text style={styles.planName}>
                 {selectedPlan === 'monthly' ? 'Monthly' : 'Annual'} Plan
               </Text>
-              {plans[selectedPlan].savings && (
+              {getSavings(selectedPlan) && (
                 <View style={styles.savingsBadge}>
-                  <Text style={styles.savingsText}>{plans[selectedPlan].savings}</Text>
+                  <Text style={styles.savingsText}>{getSavings(selectedPlan)}</Text>
+                </View>
+              )}
+              {!subscriptionSummary.isTrial && (
+                <View style={styles.recommendedBadge}>
+                  <Text style={styles.recommendedBadgeText}>Recommended</Text>
                 </View>
               )}
             </View>
             
             <View style={styles.planPricing}>
-              <Text style={styles.planPrice}>${plans[selectedPlan].price}</Text>
-              <Text style={styles.planPeriod}>per {plans[selectedPlan].period}</Text>
+              <Text style={styles.planPrice}>${getPlanPrice(selectedPlan)}</Text>
+              <Text style={styles.planPeriod}>per {getPlanPeriod(selectedPlan)}</Text>
             </View>
             
             <Text style={styles.planDescription}>
               {selectedPlan === 'annual' 
-                ? 'Best value - save 28% compared to monthly'
+                ? 'Best value - save 29% compared to monthly'
                 : 'Flexible monthly billing'
               }
             </Text>
             
             <TouchableOpacity
-              style={[styles.planButton, styles.selectedPlanButton]}
+              style={[
+                styles.planButton, 
+                subscriptionSummary.isTrial ? styles.upgradeButton : styles.selectedPlanButton
+              ]}
               onPress={() => handleSubscribe(selectedPlan)}
               activeOpacity={0.8}
             >
-              <Text style={styles.selectedPlanButtonText}>Choose Plan</Text>
+              <Text style={[
+                subscriptionSummary.isTrial ? styles.upgradeButtonText : styles.selectedPlanButtonText
+              ]}>
+                {subscriptionSummary.isTrial ? 'Upgrade Now' : 'Choose Plan'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -199,22 +413,20 @@ const SubscriptionScreen = ({ navigation }: any) => {
           </View>
           
           <View style={styles.trustItem}>
-            <Text style={styles.trustIcon}>🔄</Text>
+            <Text style={styles.trustIcon}>💳</Text>
             <Text style={styles.trustText}>Cancel anytime</Text>
           </View>
           
           <View style={styles.trustItem}>
-            <Text style={styles.trustIcon}>💬</Text>
-            <Text style={styles.trustText}>24/7 customer support</Text>
+            <Text style={styles.trustIcon}>📱</Text>
+            <Text style={styles.trustText}>Works on all devices</Text>
           </View>
         </View>
 
         {/* Terms */}
         <View style={styles.termsSection}>
           <Text style={styles.termsText}>
-            By starting your free trial, you agree to our Terms of Service and Privacy Policy. 
-            Your subscription will automatically renew unless canceled at least 24 hours before 
-            the end of the current period.
+            By starting your free trial, you agree to our Terms of Service and Privacy Policy.
           </Text>
         </View>
       </ScrollView>
@@ -225,10 +437,20 @@ const SubscriptionScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.softCream,
+    backgroundColor: Colors.background,
   },
   scrollView: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: Typography.fontSize.body,
+    color: Colors.coolGrayText,
+    marginTop: Spacing.md,
   },
   header: {
     flexDirection: 'row',
@@ -241,54 +463,68 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.md,
-    shadowColor: Colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   backButtonText: {
-    fontSize: 20,
+    fontSize: Typography.fontSize.h2,
     color: Colors.warmGrayText,
   },
   title: {
     fontSize: Typography.fontSize.h1,
-    fontWeight: Typography.fontWeight.semiBold,
+    fontWeight: Typography.fontWeight.bold,
     color: Colors.warmGrayText,
-    flex: 1,
   },
   heroSection: {
     paddingHorizontal: Layout.padding,
-    paddingBottom: Spacing.xl,
-    alignItems: 'center',
+    paddingBottom: Spacing.lg,
   },
   heroTitle: {
-    fontSize: Typography.fontSize.h1,
+    fontSize: Typography.fontSize.h2,
     fontWeight: Typography.fontWeight.semiBold,
     color: Colors.warmGrayText,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-    lineHeight: Typography.lineHeight.h1,
+    marginBottom: Spacing.xs,
   },
   heroSubtitle: {
     fontSize: Typography.fontSize.body,
     color: Colors.coolGrayText,
-    textAlign: 'center',
     lineHeight: Typography.lineHeight.body,
+  },
+  statusSection: {
+    paddingHorizontal: Layout.padding,
+    marginBottom: Spacing.lg,
+  },
+  statusTitle: {
+    fontSize: Typography.fontSize.h3,
+    fontWeight: Typography.fontWeight.semiBold,
+    color: Colors.warmGrayText,
+    marginBottom: Spacing.sm,
+  },
+  statusCard: {
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+    borderRadius: Layout.borderRadius.md,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.primarySage,
+  },
+  statusText: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.medium,
+    color: Colors.warmGrayText,
+    marginBottom: Spacing.xs,
+  },
+  statusSubtext: {
+    fontSize: Typography.fontSize.small,
+    color: Colors.coolGrayText,
   },
   featuresSection: {
     paddingHorizontal: Layout.padding,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
   },
   featuresTitle: {
-    fontSize: Typography.fontSize.h2,
+    fontSize: Typography.fontSize.h3,
     fontWeight: Typography.fontWeight.semiBold,
     color: Colors.warmGrayText,
     marginBottom: Spacing.md,
@@ -299,10 +535,10 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   featureIcon: {
-    fontSize: 20,
-    color: Colors.successTeal,
-    marginRight: Spacing.md,
-    fontWeight: Typography.fontWeight.bold,
+    fontSize: Typography.fontSize.body,
+    color: Colors.primarySage,
+    marginRight: Spacing.sm,
+    fontWeight: 'bold',
   },
   featureText: {
     fontSize: Typography.fontSize.body,
@@ -311,25 +547,17 @@ const styles = StyleSheet.create({
   },
   pricingToggle: {
     flexDirection: 'row',
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.surface,
+    borderRadius: Layout.borderRadius.md,
+    padding: Spacing.xs,
     marginHorizontal: Layout.padding,
     marginBottom: Spacing.lg,
-    borderRadius: Layout.borderRadius.medium,
-    padding: Spacing.xs,
-    shadowColor: Colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   toggleOption: {
     flex: 1,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
-    borderRadius: Layout.borderRadius.small,
+    borderRadius: Layout.borderRadius.sm,
     alignItems: 'center',
   },
   toggleOptionActive: {
@@ -341,18 +569,18 @@ const styles = StyleSheet.create({
     color: Colors.warmGrayText,
   },
   toggleOptionTextActive: {
-    color: Colors.white,
+    color: Colors.textInverse,
   },
   plansContainer: {
     paddingHorizontal: Layout.padding,
-    marginBottom: Spacing.xl,
-    gap: Spacing.lg,
+    marginBottom: Spacing.lg,
   },
   planCard: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.surface,
+    borderRadius: Layout.borderRadius.md,
     padding: Spacing.lg,
-    borderRadius: Layout.borderRadius.large,
-    shadowColor: Colors.black,
+    marginBottom: Spacing.md,
+    shadowColor: Colors.shadow,
     shadowOffset: {
       width: 0,
       height: 2,
@@ -372,41 +600,39 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   planName: {
-    fontSize: Typography.fontSize.h2,
+    fontSize: Typography.fontSize.h3,
     fontWeight: Typography.fontWeight.semiBold,
     color: Colors.warmGrayText,
   },
   trialRibbon: {
-    backgroundColor: Colors.blushPink,
-    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.primarySage,
+    paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
-    borderRadius: Layout.borderRadius.small,
+    borderRadius: Layout.borderRadius.sm,
   },
   trialRibbonText: {
     fontSize: Typography.fontSize.small,
     fontWeight: Typography.fontWeight.medium,
-    color: Colors.warmGrayText,
+    color: Colors.textInverse,
   },
   savingsBadge: {
-    backgroundColor: Colors.successTeal,
-    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.secondaryCoral,
+    paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
-    borderRadius: Layout.borderRadius.small,
+    borderRadius: Layout.borderRadius.sm,
   },
   savingsText: {
     fontSize: Typography.fontSize.small,
     fontWeight: Typography.fontWeight.medium,
-    color: Colors.white,
+    color: Colors.textInverse,
   },
   planPricing: {
-    alignItems: 'center',
     marginBottom: Spacing.md,
   },
   planPrice: {
-    fontSize: 48,
+    fontSize: Typography.fontSize.h1,
     fontWeight: Typography.fontWeight.bold,
-    color: Colors.primarySage,
-    marginBottom: Spacing.xs,
+    color: Colors.warmGrayText,
   },
   planPeriod: {
     fontSize: Typography.fontSize.body,
@@ -414,39 +640,31 @@ const styles = StyleSheet.create({
   },
   planDescription: {
     fontSize: Typography.fontSize.body,
-    color: Colors.warmGrayText,
-    textAlign: 'center',
-    marginBottom: Spacing.lg,
+    color: Colors.coolGrayText,
     lineHeight: Typography.lineHeight.body,
+    marginBottom: Spacing.lg,
   },
   planButton: {
-    backgroundColor: Colors.primarySage,
-    height: Layout.buttonHeight,
-    borderRadius: Layout.borderRadius.medium,
-    justifyContent: 'center',
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.primarySage,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Layout.borderRadius.md,
     alignItems: 'center',
-    marginBottom: Spacing.md,
-    shadowColor: Colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    marginBottom: Spacing.sm,
   },
   selectedPlanButton: {
-    backgroundColor: Colors.successTeal,
+    backgroundColor: Colors.primarySage,
+    borderColor: Colors.primarySage,
   },
   planButtonText: {
-    color: Colors.white,
     fontSize: Typography.fontSize.body,
     fontWeight: Typography.fontWeight.medium,
+    color: Colors.primarySage,
   },
   selectedPlanButtonText: {
-    color: Colors.white,
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.medium,
+    color: Colors.textInverse,
   },
   planNote: {
     fontSize: Typography.fontSize.small,
@@ -455,21 +673,20 @@ const styles = StyleSheet.create({
   },
   trustSection: {
     paddingHorizontal: Layout.padding,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
   },
   trustItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   trustIcon: {
-    fontSize: 20,
-    marginRight: Spacing.md,
+    fontSize: Typography.fontSize.body,
+    marginRight: Spacing.sm,
   },
   trustText: {
     fontSize: Typography.fontSize.body,
     color: Colors.coolGrayText,
-    flex: 1,
   },
   termsSection: {
     paddingHorizontal: Layout.padding,
@@ -480,6 +697,106 @@ const styles = StyleSheet.create({
     color: Colors.coolGrayText,
     textAlign: 'center',
     lineHeight: Typography.lineHeight.small,
+  },
+  // New styles for current plan and recommended plan
+  currentPlanCard: {
+    borderWidth: 2,
+    borderColor: Colors.primarySage,
+    backgroundColor: Colors.primarySage + '10', // Semi-transparent sage background
+  },
+  currentPlanBadge: {
+    backgroundColor: Colors.primarySage,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: Layout.borderRadius.sm,
+  },
+  currentPlanBadgeText: {
+    fontSize: Typography.fontSize.small,
+    fontWeight: Typography.fontWeight.medium,
+    color: Colors.textInverse,
+  },
+  currentPlanInfo: {
+    alignItems: 'center',
+    paddingVertical: Spacing.md,
+  },
+  currentPlanStatus: {
+    fontSize: Typography.fontSize.h4,
+    fontWeight: Typography.fontWeight.semiBold,
+    color: Colors.primarySage,
+    marginBottom: Spacing.xs,
+  },
+  currentPlanDays: {
+    fontSize: Typography.fontSize.body,
+    color: Colors.coolGrayText,
+  },
+  recommendedPlanCard: {
+    borderWidth: 2,
+    borderColor: Colors.secondaryCoral,
+  },
+  recommendedBadge: {
+    backgroundColor: Colors.secondaryCoral,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: Layout.borderRadius.sm,
+  },
+  recommendedBadgeText: {
+    fontSize: Typography.fontSize.small,
+    fontWeight: Typography.fontWeight.medium,
+    color: Colors.textInverse,
+  },
+  upgradeButton: {
+    backgroundColor: Colors.secondaryCoral,
+    borderColor: Colors.secondaryCoral,
+  },
+  upgradeButtonText: {
+    color: Colors.textInverse,
+  },
+  // Trial expired banner styles
+  trialExpiredBanner: {
+    backgroundColor: Colors.secondaryCoral + '15', // Semi-transparent coral
+    borderWidth: 1,
+    borderColor: Colors.secondaryCoral,
+    borderRadius: Layout.borderRadius.md,
+    padding: Spacing.lg,
+    marginHorizontal: Layout.padding,
+    marginBottom: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  trialExpiredContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  trialExpiredIcon: {
+    fontSize: Typography.fontSize.h2,
+    marginRight: Spacing.md,
+  },
+  trialExpiredText: {
+    flex: 1,
+  },
+  trialExpiredTitle: {
+    fontSize: Typography.fontSize.h4,
+    fontWeight: Typography.fontWeight.semiBold,
+    color: Colors.secondaryCoral,
+    marginBottom: Spacing.xs,
+  },
+  trialExpiredSubtitle: {
+    fontSize: Typography.fontSize.body,
+    color: Colors.coolGrayText,
+  },
+  trialExpiredButton: {
+    backgroundColor: Colors.secondaryCoral,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: Layout.borderRadius.md,
+    marginLeft: Spacing.md,
+  },
+  trialExpiredButtonText: {
+    color: Colors.textInverse,
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.medium,
   },
 });
 

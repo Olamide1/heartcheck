@@ -13,6 +13,7 @@ import {
 import { Colors, Typography, Spacing, Layout } from '../../constants';
 import { auth, db } from '../../services/supabase';
 import { supabase } from '../../services/supabase';
+import { subscriptionService } from '../../services/subscriptions';
 import { LinearGradient } from 'expo-linear-gradient';
 
 interface EmailConfirmationScreenProps {
@@ -158,6 +159,15 @@ const EmailConfirmationScreen: React.FC<EmailConfirmationScreenProps> = ({
         }
         
         console.log('Profile created successfully');
+        
+        // Start free trial for new user
+        try {
+          await subscriptionService.startFreeTrial(userData.id);
+          console.log('Free trial started successfully');
+        } catch (error) {
+          console.error('Failed to start free trial:', error);
+          // Don't block the flow if free trial fails
+        }
       }
       
       // Now sign in the user to establish a proper session

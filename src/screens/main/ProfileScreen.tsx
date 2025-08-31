@@ -8,40 +8,102 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  Platform,
 } from 'react-native';
-import { Colors, Typography, Spacing, Layout } from '../../constants';
-import { auth, db } from '../../services/supabase';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { supabase } from '../../services/supabase';
+import { notificationService } from '../../services/notifications';
 import { User } from '../../types';
 
 const ProfileScreen = ({ navigation }: any) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [dailyReminderTime, setDailyReminderTime] = useState('9:00 PM');
+  const [dailyReminderTime, setDailyReminderTime] = useState('21:00');
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [tempTime, setTempTime] = useState('21:00'); // Temporary time for picker
 
   useEffect(() => {
     loadUserProfile();
+    initializeNotifications();
   }, []);
+
+  const initializeNotifications = async () => {
+    try {
+      await notificationService.initialize();
+    } catch (error) {
+      console.error('Failed to initialize notifications:', error);
+    }
+  };
 
   const loadUserProfile = async () => {
     try {
-      const { user: currentUser } = await auth.getCurrentUser();
-      if (!currentUser) return;
+      setIsLoading(true);
+      
+      // Get current authenticated user
+      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+      if (userError || !currentUser) {
+        console.error('Error getting current user:', userError);
+        return;
+      }
 
-      // TODO: Load actual user profile from database
-      // For now, using mock data
-      const mockUser: User = {
-        id: currentUser.id,
-        email: currentUser.email || '',
-        name: currentUser.user_metadata?.name || 'User',
-        nickname: currentUser.user_metadata?.nickname || '',
-        relationshipStartDate: '2023-01-15',
-        timezone: 'America/New_York',
-        createdAt: currentUser.created_at || new Date().toISOString(),
-        updatedAt: currentUser.updated_at || new Date().toISOString(),
-      };
+      // Load user profile from database
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', currentUser.id)
+        .single();
 
-      setUser(mockUser);
+      if (profileError) {
+        console.error('Error loading user profile:', profileError);
+        
+        // Check if it's a "no rows" error (user profile doesn't exist yet)
+        if (profileError.message === 'No rows returned') {
+          console.log('User profile not found, creating fallback user data');
+          // User exists in auth but not in users table - this can happen during onboarding
+          const fallbackUser: User = {
+            id: currentUser.id,
+            email: currentUser.email || '',
+            name: currentUser.user_metadata?.name || 'User',
+            nickname: '',
+            relationshipStartDate: null,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            notificationsEnabled: true,
+            dailyReminderTime: '21:00',
+            createdAt: currentUser.created_at || new Date().toISOString(),
+            updatedAt: currentUser.updated_at || new Date().toISOString(),
+          };
+          setUser(fallbackUser);
+          // Update local state with fallback preferences
+          setNotificationsEnabled(fallbackUser.notificationsEnabled);
+          setDailyReminderTime(fallbackUser.dailyReminderTime);
+        } else {
+          // Other database error
+          console.error('Database error loading profile:', profileError);
+          Alert.alert('Error', 'Unable to load profile. Please try again.');
+        }
+      } else {
+        // Successfully loaded user profile
+        console.log('User profile loaded successfully:', userProfile);
+        
+        // Map database fields to TypeScript interface
+        const mappedUser: User = {
+          id: userProfile.id,
+          email: userProfile.email,
+          name: userProfile.name,
+          nickname: userProfile.nickname || '',
+          relationshipStartDate: userProfile.relationship_start_date,
+          timezone: userProfile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+          notificationsEnabled: userProfile.notifications_enabled ?? true,
+          dailyReminderTime: userProfile.daily_reminder_time || '21:00',
+          createdAt: userProfile.created_at,
+          updatedAt: userProfile.updated_at,
+        };
+        setUser(mappedUser);
+        // Update local state with user preferences
+        setNotificationsEnabled(mappedUser.notificationsEnabled);
+        setDailyReminderTime(mappedUser.dailyReminderTime);
+      }
 
     } catch (error) {
       console.error('Load user profile error:', error);
@@ -64,7 +126,7 @@ const ProfileScreen = ({ navigation }: any) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await auth.signOut();
+              await supabase.auth.signOut();
               // Navigation will be handled by the auth state change listener
             } catch (error) {
               console.error('Sign out error:', error);
@@ -115,6 +177,81 @@ const ProfileScreen = ({ navigation }: any) => {
 
   const handleSubscription = () => {
     navigation.navigate('Subscription');
+  };
+
+
+
+  const handleNotificationToggle = async (enabled: boolean) => {
+    if (!user) return;
+    
+    try {
+      setNotificationsEnabled(enabled);
+      
+      // Update notification service
+      await notificationService.updatePreferences({
+        userId: user.id,
+        enabled: enabled,
+        reminderTime: dailyReminderTime,
+        timezone: user.timezone,
+      });
+      
+      console.log(`Notifications ${enabled ? 'enabled' : 'disabled'} for user ${user.id}`);
+    } catch (error) {
+      console.error('Failed to update notification preferences:', error);
+      // Revert the toggle if it failed
+      setNotificationsEnabled(!enabled);
+      Alert.alert('Error', 'Failed to update notification preferences. Please try again.');
+    }
+  };
+
+  const handleTimeChange = (event: any, selectedTime?: Date) => {
+    if (selectedTime) {
+      const timeString = selectedTime.toTimeString().slice(0, 5); // Format as HH:MM
+      setTempTime(timeString); // Only update temp time, don't save yet
+    }
+  };
+
+  const formatTimeForDisplay = (timeString: string) => {
+    try {
+      const [hours, minutes] = timeString.split(':');
+      const hour = parseInt(hours);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const displayHour = hour > 12 ? hour - 12 : hour === 0 ? hour : hour;
+      return `${displayHour}:${minutes} ${ampm}`;
+    } catch (error) {
+      return '9:00 PM'; // Fallback
+    }
+  };
+
+  const handleTimePickerDone = async () => {
+    if (!user) return;
+    
+    setShowTimePicker(false);
+    if (tempTime !== dailyReminderTime) {
+      try {
+        setDailyReminderTime(tempTime);
+        
+        // Update notification service with new time
+        await notificationService.updatePreferences({
+          userId: user.id,
+          enabled: notificationsEnabled,
+          reminderTime: tempTime,
+          timezone: user.timezone,
+        });
+        
+        console.log(`Updated reminder time to ${tempTime} for user ${user.id}`);
+      } catch (error) {
+        console.error('Failed to update reminder time:', error);
+        // Revert the time if it failed
+        setDailyReminderTime(dailyReminderTime);
+        Alert.alert('Error', 'Failed to update reminder time. Please try again.');
+      }
+    }
+  };
+
+  const handleTimePickerCancel = () => {
+    setShowTimePicker(false);
+    setTempTime(dailyReminderTime); // Reset temp time to current saved time
   };
 
   if (isLoading) {
@@ -178,12 +315,13 @@ const ProfileScreen = ({ navigation }: any) => {
             <Text style={styles.infoValue}>{user.timezone}</Text>
           </View>
           
-          <View style={styles.infoRow}>
+          {/* Member Since - Hidden for now as requested */}
+          {/* <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Member Since</Text>
             <Text style={styles.infoValue}>
               {new Date(user.createdAt).toLocaleDateString()}
             </Text>
-          </View>
+          </View> */}
         </View>
 
         {/* Notifications */}
@@ -199,88 +337,112 @@ const ProfileScreen = ({ navigation }: any) => {
             </View>
             <Switch
               value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
-              trackColor={{ false: Colors.warmGray20, true: Colors.primarySage }}
-              thumbColor={Colors.white}
+              onValueChange={handleNotificationToggle}
+              trackColor={{ false: '#E5E7EB', true: '#10B981' }}
+              thumbColor={notificationsEnabled ? '#FFFFFF' : '#FFFFFF'}
             />
           </View>
           
-          {notificationsEnabled && (
-            <View style={styles.settingRow}>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Reminder Time</Text>
-                <Text style={styles.settingDescription}>
-                  When to send your daily reminder
-                </Text>
-              </View>
-              <TouchableOpacity style={styles.timeButton}>
-                <Text style={styles.timeButtonText}>{dailyReminderTime}</Text>
-              </TouchableOpacity>
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Reminder Time</Text>
+              <Text style={styles.settingDescription}>
+                When to send daily check-in reminders
+              </Text>
             </View>
-          )}
+            <TouchableOpacity 
+              style={styles.timeButton}
+              onPress={() => {
+                setTempTime(dailyReminderTime); // Set temp time to current time
+                setShowTimePicker(true);
+              }}
+            >
+              <Text style={styles.timeButtonText}>{formatTimeForDisplay(dailyReminderTime)}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Subscription */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Subscription</Text>
-          
           <TouchableOpacity style={styles.subscriptionButton} onPress={handleSubscription}>
             <View style={styles.subscriptionInfo}>
-              <Text style={styles.subscriptionLabel}>Current Plan</Text>
-              <Text style={styles.subscriptionValue}>Free Trial</Text>
+              <Text style={styles.subscriptionLabel}>Subscription</Text>
+              <Text style={styles.subscriptionValue}>Free Plan</Text>
             </View>
             <Text style={styles.subscriptionArrow}>→</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Partner Management */}
+        {/* Actions */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Partner</Text>
-          
-          <TouchableOpacity style={styles.partnerButton}>
-            <Text style={styles.partnerButtonText}>Manage Partner Connection</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Data & Privacy */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Data & Privacy</Text>
-          
-          <TouchableOpacity style={styles.privacyButton}>
-            <Text style={styles.privacyButtonText}>Export My Data</Text>
+          <TouchableOpacity style={styles.actionButton} onPress={handleSignOut}>
+            <Text style={styles.actionButtonText}>Sign Out</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.privacyButton}>
-            <Text style={styles.privacyButtonText}>Privacy Policy</Text>
+          <TouchableOpacity style={styles.dangerButton} onPress={handleDeleteAccount}>
+            <Text style={styles.dangerButtonText}>Delete Account</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.privacyButton}>
-            <Text style={styles.privacyButtonText}>Terms of Service</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Account Actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          
-          <TouchableOpacity style={styles.accountButton} onPress={handleSignOut}>
-            <Text style={styles.signOutButtonText}>Sign Out</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.accountButton, styles.deleteButton]} 
-            onPress={handleDeleteAccount}
-          >
-            <Text style={styles.deleteButtonText}>Delete Account</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* App Info */}
-        <View style={styles.appInfo}>
-          <Text style={styles.appVersion}>HeartCheck v1.0.0</Text>
-          <Text style={styles.appCopyright}>© 2024 HeartCheck. All rights reserved.</Text>
         </View>
       </ScrollView>
+
+      {/* Time Picker Modal */}
+      {showTimePicker && (
+        Platform.OS === 'ios' ? (
+          <View style={styles.timePickerOverlay}>
+            <View style={styles.timePickerContainer}>
+              <View style={styles.timePickerHeader}>
+                <TouchableOpacity onPress={handleTimePickerCancel}>
+                  <Text style={styles.timePickerButton}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={styles.timePickerTitle}>Set Reminder Time</Text>
+                <TouchableOpacity onPress={handleTimePickerDone}>
+                  <Text style={styles.timePickerButton}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <DateTimePicker
+                value={(() => {
+                  try {
+                    const [hours, minutes] = tempTime.split(':');
+                    const date = new Date();
+                    date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                    return date;
+                  } catch (error) {
+                    return new Date();
+                  }
+                })()}
+                mode="time"
+                is24Hour={false}
+                display="spinner"
+                onChange={handleTimeChange}
+              />
+            </View>
+          </View>
+        ) : (
+          <DateTimePicker
+            value={(() => {
+              try {
+                const [hours, minutes] = tempTime.split(':');
+                const date = new Date();
+                date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                return date;
+              } catch (error) {
+                return new Date();
+              }
+            })()}
+            mode="time"
+            is24Hour={false}
+            display="default"
+            onChange={(event, selectedTime) => {
+              if (event.type === 'set' && selectedTime) {
+                handleTimePickerDone();
+              } else if (event.type === 'dismissed') {
+                handleTimePickerCancel();
+              }
+            }}
+          />
+        )
+      )}
     </SafeAreaView>
   );
 };
@@ -288,7 +450,7 @@ const ProfileScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.softCream,
+    backgroundColor: '#F5F5F5',
   },
   scrollView: {
     flex: 1,
@@ -299,140 +461,132 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    fontSize: Typography.fontSize.body,
-    color: Colors.coolGrayText,
+    fontSize: 16,
+    color: '#6B7280',
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: Layout.padding,
+    paddingHorizontal: 20,
   },
   errorText: {
-    fontSize: Typography.fontSize.body,
-    color: Colors.alertCoral,
-    marginBottom: Spacing.lg,
+    fontSize: 16,
+    color: '#EF4444',
+    marginBottom: 20,
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: Colors.primarySage,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderRadius: Layout.borderRadius.medium,
+    backgroundColor: '#10B981',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
   },
   retryButtonText: {
-    color: Colors.white,
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.medium,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
     alignItems: 'center',
-    paddingHorizontal: Layout.padding,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.xl,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
   },
   avatarContainer: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: Colors.primarySage,
+    backgroundColor: '#10B981',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: Spacing.md,
-    shadowColor: Colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    marginBottom: 16,
   },
   avatarText: {
     fontSize: 32,
-    fontWeight: Typography.fontWeight.bold,
-    color: Colors.white,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
   userName: {
-    fontSize: Typography.fontSize.h2,
-    fontWeight: Typography.fontWeight.semiBold,
-    color: Colors.warmGrayText,
-    marginBottom: Spacing.xs,
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
   },
   userEmail: {
-    fontSize: Typography.fontSize.body,
-    color: Colors.coolGrayText,
+    fontSize: 16,
+    color: '#6B7280',
   },
   section: {
-    marginHorizontal: Layout.padding,
-    marginBottom: Spacing.lg,
+    marginHorizontal: 20,
+    marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: Typography.fontSize.h2,
-    fontWeight: Typography.fontWeight.semiBold,
-    color: Colors.warmGrayText,
-    marginBottom: Spacing.md,
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 16,
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: Spacing.sm,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.warmGray10,
+    borderBottomColor: '#E5E7EB',
   },
   infoLabel: {
-    fontSize: Typography.fontSize.body,
-    color: Colors.warmGrayText,
+    fontSize: 16,
+    color: '#6B7280',
   },
   infoValue: {
-    fontSize: Typography.fontSize.body,
-    color: Colors.coolGrayText,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
   },
   settingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: Spacing.md,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.warmGray10,
+    borderBottomColor: '#E5E7EB',
   },
   settingInfo: {
     flex: 1,
-    marginRight: Spacing.md,
+    marginRight: 16,
   },
   settingLabel: {
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.medium,
-    color: Colors.warmGrayText,
-    marginBottom: Spacing.xs,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 8,
   },
   settingDescription: {
-    fontSize: Typography.fontSize.small,
-    color: Colors.coolGrayText,
-    lineHeight: Typography.lineHeight.small,
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
   },
   timeButton: {
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Layout.borderRadius.small,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: Colors.primarySage,
+    borderColor: '#10B981',
   },
   timeButtonText: {
-    color: Colors.primarySage,
-    fontSize: Typography.fontSize.small,
-    fontWeight: Typography.fontWeight.medium,
+    color: '#10B981',
+    fontSize: 14,
+    fontWeight: '500',
   },
   subscriptionButton: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Colors.white,
-    padding: Spacing.md,
-    borderRadius: Layout.borderRadius.medium,
-    shadowColor: Colors.black,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 8,
+    shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 1,
@@ -445,102 +599,79 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   subscriptionLabel: {
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.medium,
-    color: Colors.warmGrayText,
-    marginBottom: Spacing.xs,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 8,
   },
   subscriptionValue: {
-    fontSize: Typography.fontSize.body,
-    color: Colors.primarySage,
-    fontWeight: Typography.fontWeight.medium,
+    fontSize: 16,
+    color: '#10B981',
+    fontWeight: '500',
   },
   subscriptionArrow: {
-    fontSize: Typography.fontSize.h2,
-    color: Colors.coolGrayText,
+    fontSize: 24,
+    color: '#6B7280',
   },
-  partnerButton: {
-    backgroundColor: Colors.white,
-    padding: Spacing.md,
-    borderRadius: Layout.borderRadius.medium,
+  actionButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.primarySage,
-    shadowColor: Colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    marginBottom: 12,
   },
-  partnerButtonText: {
-    color: Colors.primarySage,
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.medium,
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
   },
-  privacyButton: {
-    backgroundColor: Colors.white,
-    padding: Spacing.md,
-    borderRadius: Layout.borderRadius.medium,
-    marginBottom: Spacing.sm,
-    shadowColor: Colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  privacyButtonText: {
-    color: Colors.warmGrayText,
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  accountButton: {
-    backgroundColor: Colors.white,
-    padding: Spacing.md,
-    borderRadius: Layout.borderRadius.medium,
-    marginBottom: Spacing.sm,
+  dangerButton: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
     alignItems: 'center',
-    shadowColor: Colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    marginBottom: 12,
   },
-  signOutButtonText: {
-    color: Colors.warmGrayText,
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.medium,
+  dangerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
   },
-  deleteButton: {
-    backgroundColor: Colors.alertCoral,
-  },
-  deleteButtonText: {
-    color: Colors.white,
-    fontSize: Typography.fontSize.body,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  appInfo: {
+  timePickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: Layout.padding,
-    paddingVertical: Spacing.xl,
+    zIndex: 1000,
   },
-  appVersion: {
-    fontSize: Typography.fontSize.small,
-    color: Colors.coolGrayText,
-    marginBottom: Spacing.xs,
+  timePickerContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
   },
-  appCopyright: {
-    fontSize: Typography.fontSize.small,
-    color: Colors.coolGrayText,
-    textAlign: 'center',
+  timePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  timePickerButton: {
+    color: '#10B981',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  timePickerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
   },
 });
 
