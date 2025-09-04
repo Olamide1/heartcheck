@@ -236,12 +236,17 @@ export const db = {
         .from('couples')
         .select('*')
         .or(`partner1_id.eq.${userId},partner2_id.eq.${userId}`)
-        .single();
-      
+        .maybeSingle();
+
+      // If no couple exists yet, return null data without treating as an error
+      if (!data && !error) {
+        return { data: null, error: null };
+      }
+
       if (error) {
         return { data: null, error };
       }
-      
+
       if (data) {
         // Map snake_case database fields to camelCase TypeScript interface
         const mappedCouple = {
@@ -253,8 +258,8 @@ export const db = {
         };
         return { data: mappedCouple, error: null };
       }
-      
-      return { data: null, error };
+
+      return { data: null, error: null };
     } catch (error) {
       return { data: null, error: { message: 'Database operation failed' } };
     }
