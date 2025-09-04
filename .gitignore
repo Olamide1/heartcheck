@@ -37,6 +37,9 @@ yarn-error.*
 .env.production
 .env.staging
 
+# EAS Build configuration with sensitive data
+eas.json
+
 # typescript
 *.tsbuildinfo
 

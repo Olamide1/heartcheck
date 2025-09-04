@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Typography, Spacing, Layout } from '../../constants';
-import Logo from '../../components/Logo';
+import { Image } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -24,8 +24,11 @@ const WelcomeScreen = ({ navigation }: any) => {
         {/* Logo & Title Section */}
         <View style={styles.heroSection}>
           <View style={styles.logoContainer}>
-            <Logo size={64} />
-            <View style={styles.logoGlow} />
+            <Image 
+              source={require('../../../assets/heartcheck_logo.png')} 
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
           
           <Text style={styles.title}>HeartCheck</Text>
@@ -108,15 +111,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginBottom: 24,
   },
-  logoGlow: {
-    position: 'absolute',
-    top: -6,
-    left: -6,
-    right: -6,
-    bottom: -6,
-    backgroundColor: Colors.primarySage,
-    borderRadius: 35,
-    opacity: 0.1,
+  logoImage: {
+    width: 120,
+    height: 80,
   },
   title: {
     fontSize: 32,
