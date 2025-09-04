@@ -1,6 +1,6 @@
 [build]
   base = "landing-page"
-  publish = "."
+  publish = "landing-page"
   command = "echo 'Static site - no build needed'"
 
 [build.environment]
