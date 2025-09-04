@@ -1,10 +1,6 @@
 [build]
   base = "landing-page"
   publish = "landing-page"
-  command = "echo 'Static site - no build needed'"
-
-[build.environment]
-  NODE_VERSION = "18"
 
 [[redirects]]
   from = "/*"
