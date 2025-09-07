@@ -62,7 +62,7 @@ export class PaymentService {
       ].join('&');
       
       console.log('Stripe request body:', formDataString);
-      console.log('Success URL being sent:', 'https://example.com/success');
+      console.log('Success URL being sent:', `https://playful-blancmange-bf370c.netlify.app/payment-success?plan=${plan}&user_id=${userId || ''}`);
       
       const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
         method: 'POST',
