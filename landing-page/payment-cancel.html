@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Cancelled - HeartCheck</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 100%;
+        }
+        .cancel-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #718096;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        .button {
+            background: #667eea;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+        .button:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+        .button.secondary {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+        .button.secondary:hover {
+            background: #cbd5e0;
+        }
+        .loading {
+            margin-top: 20px;
+            color: #718096;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="cancel-icon">❌</div>
+        <h1>Payment Cancelled</h1>
+        <p>No worries! You can try again anytime or continue with the free trial.</p>
+        
+        <a href="heartcheck://payment-cancel" class="button">
+            Return to App
+        </a>
+        
+        <a href="/" class="button secondary">
+            Back to Home
+        </a>
+        
+        <div class="loading">
+            <p>Redirecting to app in 5 seconds...</p>
+        </div>
+    </div>
+
+    <script>
+        // Auto-redirect to app after 5 seconds
+        setTimeout(() => {
+            window.location.href = 'heartcheck://payment-cancel';
+        }, 5000);
+
+        // Also try to redirect immediately
+        window.location.href = 'heartcheck://payment-cancel';
+    </script>
+</body>
+</html>

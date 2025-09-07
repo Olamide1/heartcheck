@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful - HeartCheck</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 100%;
+        }
+        .success-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #718096;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        .button {
+            background: #667eea;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+        }
+        .button:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+        .loading {
+            margin-top: 20px;
+            color: #718096;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success-icon">✅</div>
+        <h1>Payment Successful!</h1>
+        <p>Thank you for subscribing to HeartCheck. You can now access all premium features in the app.</p>
+        
+        <a href="heartcheck://payment-success" class="button">
+            Return to App (Production)
+        </a>
+        
+        <a href="exp://192.168.1.135:8081/--/payment-success" class="button" style="margin-top: 10px; background: #4CAF50;">
+            Return to App (Expo Go)
+        </a>
+        
+        <a href="#" id="manualExpoLink" class="button" style="margin-top: 10px; background: #FF9800;">
+            Return to App (Manual)
+        </a>
+        
+        <div class="loading">
+            <p>Redirecting to app in 3 seconds...</p>
+        </div>
+    </div>
+
+    <script>
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const plan = urlParams.get('plan') || 'monthly';
+        const userId = urlParams.get('user_id') || '';
+        
+        console.log('Payment success - Plan:', plan, 'User ID:', userId);
+        console.log('Current URL:', window.location.href);
+        console.log('Search params:', window.location.search);
+        console.log('URL params entries:', Array.from(urlParams.entries()));
+        
+        // Try different deep link schemes
+        const deepLinkUrls = [
+            `heartcheck://payment-success?plan=${plan}&user_id=${userId}`, // Production app
+            `exp://192.168.1.135:8081/--/payment-success?plan=${plan}&user_id=${userId}`, // Expo Go (your actual IP)
+            `exp://localhost:8081/--/payment-success?plan=${plan}&user_id=${userId}`, // Expo Go localhost
+        ];
+        
+        // Try to redirect to the first available scheme
+        const tryRedirect = (urls, index = 0) => {
+            if (index >= urls.length) return;
+            
+            const url = urls[index];
+            console.log('Trying deep link:', url);
+            
+            // Try to open the deep link
+            window.location.href = url;
+            
+            // If it doesn't work, try the next one after a short delay
+            setTimeout(() => {
+                tryRedirect(urls, index + 1);
+            }, 1000);
+        };
+        
+        // Auto-redirect after 3 seconds
+        setTimeout(() => {
+            tryRedirect(deepLinkUrls);
+        }, 3000);
+
+        // Also try to redirect immediately
+        tryRedirect(deepLinkUrls);
+        
+        // Set up manual link with parameters
+        const manualLink = document.getElementById('manualExpoLink');
+        if (manualLink) {
+            manualLink.href = `exp://192.168.1.135:8081/--/payment-success?plan=${plan}&user_id=${userId}`;
+            console.log('Manual link set to:', manualLink.href);
+        }
+    </script>
+</body>
+</html>

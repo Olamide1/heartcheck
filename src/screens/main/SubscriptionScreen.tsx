@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import { Colors, Typography, Spacing, Layout } from '../../constants';
 import { subscriptionService } from '../../services/subscriptions';
+import { paymentService, initializeStripe } from '../../services/payments';
 import { supabase } from '../../services/supabase';
+import { Linking } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -21,12 +23,60 @@ const SubscriptionScreen = ({ navigation }: any) => {
   const [subscriptionSummary, setSubscriptionSummary] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [stripeInitialized, setStripeInitialized] = useState(false);
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
+
+  const pricing = paymentService.getPricing();
 
   useEffect(() => {
-    loadSubscriptionData();
-  }, []);
+    initializeApp();
+  }, []); // Only run once on mount
 
-  const loadSubscriptionData = async (retryCount = 0) => {
+  // Separate effect for payment success check that only runs when currentUser is available
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    // Check for payment success in URL parameters as fallback
+    const checkPaymentSuccess = () => {
+      const url = window.location?.href || '';
+      if (url.includes('payment_success=true')) {
+        const urlParams = new URLSearchParams(url.split('?')[1] || '');
+        const plan = urlParams.get('plan') as 'monthly' | 'annual';
+        const userId = urlParams.get('user_id');
+        
+        if (plan && userId && currentUser?.id === userId) {
+          console.log('Payment success detected via URL fallback, updating subscription...');
+          subscriptionService.upgradeToPlan(userId, plan)
+            .then(() => {
+              console.log('✅ Subscription updated via fallback');
+              // Reload subscription data
+              loadSubscriptionData();
+            })
+            .catch((error) => {
+              console.error('❌ Failed to update subscription via fallback:', error);
+            });
+        }
+      }
+    };
+    
+    // Check after a short delay to ensure currentUser is loaded
+    setTimeout(checkPaymentSuccess, 1000);
+  }, [currentUser?.id]); // Only re-run when currentUser.id changes
+
+  const initializeApp = async () => {
+    try {
+      // Initialize Stripe
+      const stripeReady = await initializeStripe();
+      setStripeInitialized(stripeReady);
+      
+      // Load subscription data
+      await loadSubscriptionData();
+    } catch (error) {
+      console.error('Error initializing app:', error);
+    }
+  };
+
+  const loadSubscriptionData = async () => {
     try {
       setIsLoading(true);
       
@@ -34,6 +84,7 @@ const SubscriptionScreen = ({ navigation }: any) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         console.error('No authenticated user found');
+        setIsLoading(false);
         return;
       }
       
@@ -44,27 +95,15 @@ const SubscriptionScreen = ({ navigation }: any) => {
       setSubscriptionSummary(summary);
       
       console.log('Subscription data loaded successfully:', summary);
-      
     } catch (error) {
-      console.error('Failed to load subscription data:', error);
-      
-      // Retry logic for subscription loading
-      if (retryCount < 2) {
-        console.log(`Retrying subscription load (attempt ${retryCount + 1})`);
-        setTimeout(() => {
-          loadSubscriptionData(retryCount + 1);
-        }, 1000);
-      } else {
-        console.error('Max retries reached for subscription loading');
-        Alert.alert(
-          'Error', 
-          'Unable to load subscription data. Please restart the app and try again.',
-          [
-            { text: 'OK' },
-            { text: 'Retry', onPress: () => loadSubscriptionData(0) }
-          ]
-        );
-      }
+      console.error('Error loading subscription data:', error);
+      Alert.alert(
+        'Error', 
+        'Unable to load subscription data. Please try again.',
+        [
+          { text: 'OK' }
+        ]
+      );
     } finally {
       setIsLoading(false);
     }
@@ -76,43 +115,48 @@ const SubscriptionScreen = ({ navigation }: any) => {
       return;
     }
 
+    if (!stripeInitialized) {
+      Alert.alert('Error', 'Payment system not ready. Please try again.');
+      return;
+    }
+
     try {
-      console.log(`Starting subscription upgrade to ${plan} plan for user ${currentUser.id}`);
+      setIsCreatingCheckout(true);
+      setSelectedPlan(plan);
       
-      // Simulate subscription upgrade
-      await subscriptionService.upgradeToPlan(currentUser.id, plan);
-      
-      console.log('Subscription upgrade successful');
-      
-      Alert.alert(
-        'Subscription Updated!',
-        `You've successfully upgraded to the ${plan} plan.`,
-        [
-          {
-            text: 'Great!',
-            onPress: () => {
-              loadSubscriptionData(); // Refresh data
-              navigation.goBack();
-            },
-          },
-        ]
+      // Create Stripe Checkout session
+      const { url } = await paymentService.createCheckoutSession(
+        pricing[plan].price,
+        plan,
+        currentUser.id
       );
-    } catch (error) {
-      console.error('Subscription error:', error);
       
-      // More specific error messages
-      let errorMessage = 'Failed to update subscription. Please try again.';
-      if (error instanceof Error) {
-        if (error.message.includes('No subscription found')) {
-          errorMessage = 'Setting up your subscription... Please try again.';
-        } else if (error.message.includes('database')) {
-          errorMessage = 'Database connection issue. Please check your internet and try again.';
-        }
+      // Open Stripe Checkout in browser
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'Cannot open payment page. Please try again.');
       }
-      
-      Alert.alert('Error', errorMessage);
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+      Alert.alert('Error', 'Failed to create payment session. Please try again.');
+    } finally {
+      setIsCreatingCheckout(false);
     }
   };
+
+  const handleRefreshSubscription = async () => {
+    try {
+      setIsLoading(true);
+      await loadSubscriptionData();
+      Alert.alert('Success', 'Subscription status refreshed!');
+    } catch (error) {
+      console.error('Error refreshing subscription:', error);
+      Alert.alert('Error', 'Failed to refresh subscription status');
+    }
+  };
+
 
   const handleStartTrial = () => {
     if (!currentUser) {
@@ -215,7 +259,16 @@ const SubscriptionScreen = ({ navigation }: any) => {
         {/* Current Status */}
         {subscriptionSummary && (
           <View style={styles.statusSection}>
-            <Text style={styles.statusTitle}>Your Current Status</Text>
+            <View style={styles.statusHeader}>
+              <Text style={styles.statusTitle}>Your Current Status</Text>
+              <TouchableOpacity 
+                style={styles.refreshButton}
+                onPress={handleRefreshSubscription}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.refreshButtonText}>🔄 Refresh</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.statusCard}>
               {subscriptionSummary.isTrial ? (
                 <>
@@ -332,7 +385,7 @@ const SubscriptionScreen = ({ navigation }: any) => {
               }
             </Text>
             
-            {!subscriptionSummary.isTrial ? (
+            {!subscriptionSummary.isTrial && !subscriptionSummary.hasSubscription ? (
               <>
                 <TouchableOpacity
                   style={styles.planButton}
@@ -346,10 +399,15 @@ const SubscriptionScreen = ({ navigation }: any) => {
                   Then ${getPlanPrice(selectedPlan)}/{getPlanPeriod(selectedPlan)}
                 </Text>
               </>
-            ) : (
+            ) : subscriptionSummary.isTrial ? (
               <View style={styles.currentPlanInfo}>
                 <Text style={styles.currentPlanStatus}>🎉 Trial Active</Text>
                 <Text style={styles.currentPlanDays}>{subscriptionSummary.trialDaysRemaining} days left</Text>
+              </View>
+            ) : (
+              <View style={styles.currentPlanInfo}>
+                <Text style={styles.currentPlanStatus}>✅ Active Subscription</Text>
+                <Text style={styles.currentPlanDays}>You already have an active plan</Text>
               </View>
             )}
           </View>
@@ -358,7 +416,7 @@ const SubscriptionScreen = ({ navigation }: any) => {
           <View style={[
             styles.planCard, 
             styles.selectedPlanCard,
-            !subscriptionSummary.isTrial && styles.recommendedPlanCard
+            !subscriptionSummary.isTrial && !subscriptionSummary.hasSubscription && styles.recommendedPlanCard
           ]}>
             <View style={styles.planHeader}>
               <Text style={styles.planName}>
@@ -369,9 +427,14 @@ const SubscriptionScreen = ({ navigation }: any) => {
                   <Text style={styles.savingsText}>{getSavings(selectedPlan)}</Text>
                 </View>
               )}
-              {!subscriptionSummary.isTrial && (
+              {!subscriptionSummary.isTrial && !subscriptionSummary.hasSubscription && (
                 <View style={styles.recommendedBadge}>
                   <Text style={styles.recommendedBadgeText}>Recommended</Text>
+                </View>
+              )}
+              {subscriptionSummary.hasSubscription && subscriptionSummary.plan === selectedPlan && (
+                <View style={styles.currentPlanBadge}>
+                  <Text style={styles.currentPlanBadgeText}>Current Plan</Text>
                 </View>
               )}
             </View>
@@ -388,20 +451,33 @@ const SubscriptionScreen = ({ navigation }: any) => {
               }
             </Text>
             
-            <TouchableOpacity
-              style={[
-                styles.planButton, 
-                subscriptionSummary.isTrial ? styles.upgradeButton : styles.selectedPlanButton
-              ]}
-              onPress={() => handleSubscribe(selectedPlan)}
-              activeOpacity={0.8}
-            >
-              <Text style={[
-                subscriptionSummary.isTrial ? styles.upgradeButtonText : styles.selectedPlanButtonText
-              ]}>
-                {subscriptionSummary.isTrial ? 'Upgrade Now' : 'Choose Plan'}
-              </Text>
-            </TouchableOpacity>
+            {subscriptionSummary.hasSubscription && subscriptionSummary.plan === selectedPlan ? (
+              <View style={styles.currentPlanInfo}>
+                <Text style={styles.currentPlanStatus}>✅ Current Plan</Text>
+                <Text style={styles.currentPlanDays}>You're subscribed to this plan</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.planButton, 
+                  subscriptionSummary.isTrial ? styles.upgradeButton : styles.selectedPlanButton,
+                  isCreatingCheckout && styles.planButtonDisabled
+                ]}
+                onPress={() => handleSubscribe(selectedPlan)}
+                activeOpacity={0.8}
+                disabled={isCreatingCheckout}
+              >
+                {isCreatingCheckout ? (
+                  <ActivityIndicator color={Colors.textInverse} />
+                ) : (
+                  <Text style={[
+                    subscriptionSummary.isTrial ? styles.upgradeButtonText : styles.selectedPlanButtonText
+                  ]}>
+                    {subscriptionSummary.isTrial ? 'Upgrade Now' : 'Choose Plan'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -496,11 +572,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: Layout.padding,
     marginBottom: Spacing.lg,
   },
+  statusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: Spacing.sm,
+  },
   statusTitle: {
     fontSize: Typography.fontSize.h3,
     fontWeight: Typography.fontWeight.semiBold,
     color: Colors.warmGrayText,
-    marginBottom: Spacing.sm,
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  refreshButton: {
+    backgroundColor: Colors.primarySage,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: Layout.borderRadius.sm,
+  },
+  refreshButtonText: {
+    color: Colors.textInverse,
+    fontSize: Typography.fontSize.sm,
+    fontWeight: Typography.fontWeight.medium,
   },
   statusCard: {
     backgroundColor: Colors.surface,
@@ -578,16 +672,9 @@ const styles = StyleSheet.create({
   planCard: {
     backgroundColor: Colors.surface,
     borderRadius: Layout.borderRadius.md,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     marginBottom: Spacing.md,
-    shadowColor: Colors.shadow,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    overflow: 'hidden',
   },
   selectedPlanCard: {
     borderWidth: 2,
@@ -598,17 +685,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.md,
+    flexWrap: 'wrap',
   },
   planName: {
     fontSize: Typography.fontSize.h3,
     fontWeight: Typography.fontWeight.semiBold,
     color: Colors.warmGrayText,
+    flexShrink: 1,
+    marginRight: Spacing.sm,
   },
   trialRibbon: {
     backgroundColor: Colors.primarySage,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: Layout.borderRadius.sm,
+    marginTop: Spacing.xs,
+    marginLeft: Spacing.xs,
   },
   trialRibbonText: {
     fontSize: Typography.fontSize.small,
@@ -620,6 +712,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: Layout.borderRadius.sm,
+    marginTop: Spacing.xs,
+    marginLeft: Spacing.xs,
   },
   savingsText: {
     fontSize: Typography.fontSize.small,
@@ -630,7 +724,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   planPrice: {
-    fontSize: Typography.fontSize.h1,
+    fontSize: Typography.fontSize.h2,
     fontWeight: Typography.fontWeight.bold,
     color: Colors.warmGrayText,
   },
@@ -639,10 +733,7 @@ const styles = StyleSheet.create({
     color: Colors.coolGrayText,
   },
   planDescription: {
-    fontSize: Typography.fontSize.body,
-    color: Colors.coolGrayText,
-    lineHeight: Typography.lineHeight.body,
-    marginBottom: Spacing.lg,
+    display: 'none',
   },
   planButton: {
     backgroundColor: Colors.surface,
@@ -653,6 +744,9 @@ const styles = StyleSheet.create({
     borderRadius: Layout.borderRadius.md,
     alignItems: 'center',
     marginBottom: Spacing.sm,
+  },
+  planButtonDisabled: {
+    opacity: 0.6,
   },
   selectedPlanButton: {
     backgroundColor: Colors.primarySage,
@@ -709,6 +803,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: Layout.borderRadius.sm,
+    marginTop: Spacing.xs,
+    marginLeft: Spacing.xs,
   },
   currentPlanBadgeText: {
     fontSize: Typography.fontSize.small,
