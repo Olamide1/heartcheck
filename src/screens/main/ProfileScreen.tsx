@@ -13,6 +13,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../../services/supabase';
 import { notificationService } from '../../services/notifications';
+import { subscriptionService } from '../../services/subscriptions';
 import { User } from '../../types';
 
 const ProfileScreen = ({ navigation }: any) => {
@@ -22,10 +23,12 @@ const ProfileScreen = ({ navigation }: any) => {
   const [dailyReminderTime, setDailyReminderTime] = useState('21:00');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [tempTime, setTempTime] = useState('21:00'); // Temporary time for picker
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string>('Free Plan');
 
   useEffect(() => {
     loadUserProfile();
     initializeNotifications();
+    loadSubscriptionStatus();
   }, []);
 
   const initializeNotifications = async () => {
@@ -33,6 +36,28 @@ const ProfileScreen = ({ navigation }: any) => {
       await notificationService.initialize();
     } catch (error) {
       console.error('Failed to initialize notifications:', error);
+    }
+  };
+
+  const loadSubscriptionStatus = async () => {
+    try {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) return;
+
+      const summary = await subscriptionService.getSubscriptionSummary(currentUser.id);
+      
+      if (summary.hasSubscription) {
+        if (summary.isTrial) {
+          setSubscriptionStatus(`Trial (${summary.trialDaysRemaining} days left)`);
+        } else {
+          setSubscriptionStatus(`${summary.plan?.charAt(0).toUpperCase()}${summary.plan?.slice(1)} Plan`);
+        }
+      } else {
+        setSubscriptionStatus('Free Plan');
+      }
+    } catch (error) {
+      console.error('Failed to load subscription status:', error);
+      setSubscriptionStatus('Free Plan');
     }
   };
 
@@ -178,6 +203,15 @@ const ProfileScreen = ({ navigation }: any) => {
   const handleSubscription = () => {
     navigation.navigate('Subscription');
   };
+
+  // Refresh subscription status when screen comes into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadSubscriptionStatus();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
 
 
@@ -367,7 +401,7 @@ const ProfileScreen = ({ navigation }: any) => {
           <TouchableOpacity style={styles.subscriptionButton} onPress={handleSubscription}>
             <View style={styles.subscriptionInfo}>
               <Text style={styles.subscriptionLabel}>Subscription</Text>
-              <Text style={styles.subscriptionValue}>Free Plan</Text>
+              <Text style={styles.subscriptionValue}>{subscriptionStatus}</Text>
             </View>
             <Text style={styles.subscriptionArrow}>→</Text>
           </TouchableOpacity>
