@@ -75,3 +75,5 @@ temp/
 
 # Local Netlify folder
 .netlify
+.env.backup
+PRODUCTION_DEPLOYMENT.md

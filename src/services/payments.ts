@@ -38,10 +38,10 @@ export class PaymentService {
       
       console.log('✅ Stripe API key is working');
       
-      // Your Stripe price IDs
+      // Your Stripe price IDs (use environment variables for production)
       const priceIds = {
-        monthly: 'price_1S4ghpL4pn7XXHF53GbOdJ1t',
-        annual: 'price_1S4gjWL4pn7XXHF5xKU0HfaP'
+        monthly: process.env.EXPO_PUBLIC_STRIPE_MONTHLY_PRICE_ID || 'price_1S4ghpL4pn7XXHF53GbOdJ1t',
+        annual: process.env.EXPO_PUBLIC_STRIPE_ANNUAL_PRICE_ID || 'price_1S4gjWL4pn7XXHF5xKU0HfaP'
       }
 
       const priceId = priceIds[plan];
