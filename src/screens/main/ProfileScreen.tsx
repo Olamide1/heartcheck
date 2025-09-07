@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../../services/supabase';
-import { notificationService } from '../../services/notifications';
+import { simpleNotificationService } from '../../services/notifications-simple';
 import { subscriptionService } from '../../services/subscriptions';
 import { User } from '../../types';
 
@@ -33,7 +33,7 @@ const ProfileScreen = ({ navigation }: any) => {
 
   const initializeNotifications = async () => {
     try {
-      await notificationService.initialize();
+      await simpleNotificationService.initialize();
     } catch (error) {
       console.error('Failed to initialize notifications:', error);
     }
@@ -204,6 +204,7 @@ const ProfileScreen = ({ navigation }: any) => {
     navigation.navigate('Subscription');
   };
 
+
   // Refresh subscription status when screen comes into focus
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -222,7 +223,7 @@ const ProfileScreen = ({ navigation }: any) => {
       setNotificationsEnabled(enabled);
       
       // Update notification service
-      await notificationService.updatePreferences({
+      await simpleNotificationService.updatePreferences({
         userId: user.id,
         enabled: enabled,
         reminderTime: dailyReminderTime,
@@ -266,7 +267,7 @@ const ProfileScreen = ({ navigation }: any) => {
         setDailyReminderTime(tempTime);
         
         // Update notification service with new time
-        await notificationService.updatePreferences({
+        await simpleNotificationService.updatePreferences({
           userId: user.id,
           enabled: notificationsEnabled,
           reminderTime: tempTime,
@@ -394,6 +395,7 @@ const ProfileScreen = ({ navigation }: any) => {
               <Text style={styles.timeButtonText}>{formatTimeForDisplay(dailyReminderTime)}</Text>
             </TouchableOpacity>
           </View>
+
         </View>
 
         {/* Subscription */}

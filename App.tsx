@@ -3,7 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Linking } from 'react-native';
 import AppNavigator from './src/navigation/AppNavigator';
-import { notificationService } from './src/services/notifications';
+import { simpleNotificationService } from './src/services/notifications-simple';
 import { initializeStripe } from './src/services/payments';
 import { subscriptionService } from './src/services/subscriptions';
 import { supabase } from './src/services/supabase';
@@ -15,12 +15,8 @@ export default function App() {
       try {
         // Initialize notification service
         try {
-          await notificationService.initialize();
+          await simpleNotificationService.initialize();
           console.log('App: Notification service initialized');
-          
-          // Check if background task is ready
-          const isReady = await notificationService.isBackgroundTaskReady();
-          console.log('App: Background task ready:', isReady);
         } catch (error) {
           console.log('App: Notification service initialized with limited functionality');
           // Don't fail app startup if notifications fail
