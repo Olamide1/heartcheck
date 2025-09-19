@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, Text } from 'react-native';
+import { View, Text, AppState, AppStateStatus } from 'react-native';
 import { auth } from '../services/supabase';
 import { supabase } from '../services/supabase';
 import { Colors, Typography, Spacing } from '../constants';
@@ -155,11 +155,25 @@ const AppNavigator = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     // Check authentication state
     const checkAuth = async () => {
       try {
+        // Fast, storage-only read first (avoids network while resuming)
+        const { data: sessionData } = await supabase.auth.getSession();
+        const sessionUser = sessionData?.session?.user || null;
+
+        // If we have no session locally, treat as signed out immediately
+        if (!sessionUser) {
+          console.log('No local session found');
+          setIsAuthenticated(false);
+          setHasCompletedOnboarding(false);
+          return;
+        }
+
+        // Optionally confirm/refresh user; this can hang on iOS resume, so it is guarded by timeout at caller
         const { user } = await auth.getCurrentUser();
         if (user) {
           console.log('User authenticated:', user.email);
@@ -205,7 +219,19 @@ const AppNavigator = () => {
       }
     };
 
-    checkAuth();
+    // Timeout guard: never let loading hang forever
+    const runWithTimeout = async (fn: () => Promise<void>, timeoutMs = 8000) => {
+      try {
+        await Promise.race([
+          fn(),
+          new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    runWithTimeout(checkAuth);
 
     // Listen for auth changes
     const { data: { subscription } } = auth.onAuthStateChange(async (event, session) => {
@@ -271,7 +297,22 @@ const AppNavigator = () => {
       }
     });
 
-    return () => subscription.unsubscribe();
+    // Foreground re-check
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('App returned to foreground - re-checking auth');
+        setIsLoading(true);
+        runWithTimeout(checkAuth, 8000);
+      }
+      appState.current = nextAppState;
+    };
+
+    const appStateSub = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription.unsubscribe();
+      appStateSub.remove();
+    };
   }, []);
 
   if (isLoading) {

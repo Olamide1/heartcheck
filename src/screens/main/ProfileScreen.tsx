@@ -13,6 +13,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../../services/supabase';
 import { simpleNotificationService } from '../../services/notifications-simple';
+import { deleteAccountService } from '../../services/deleteAccount';
 import { subscriptionService } from '../../services/subscriptions';
 import { User } from '../../types';
 
@@ -163,10 +164,33 @@ const ProfileScreen = ({ navigation }: any) => {
     );
   };
 
-  const handleDeleteAccount = () => {
+  const handleDeleteAccount = async () => {
+    if (!user) {
+      Alert.alert('Error', 'Please sign in to delete your account');
+      return;
+    }
+
+    // First check if account can be deleted
+    try {
+      const { canDelete, reason } = await deleteAccountService.canDeleteAccount(user.id);
+      
+      if (!canDelete) {
+        Alert.alert(
+          'Cannot Delete Account',
+          reason || 'Unable to delete account at this time.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking account deletion status:', error);
+      Alert.alert('Error', 'Unable to verify account status. Please try again.');
+      return;
+    }
+
     Alert.alert(
       'Delete Account',
-      'This action cannot be undone. All your data will be permanently deleted.',
+      'This action cannot be undone. All your data will be permanently deleted, including:\n\n• Your profile and settings\n• All check-ins and reports\n• Subscription will be cancelled\n• You will be signed out',
       [
         {
           text: 'Cancel',
@@ -177,20 +201,17 @@ const ProfileScreen = ({ navigation }: any) => {
           style: 'destructive',
           onPress: () => {
             Alert.alert(
-              'Confirm Deletion',
-              'Are you absolutely sure? This will permanently delete your account and all data.',
+              'Final Confirmation',
+              'Are you absolutely sure? This will permanently delete your account and all data. This action cannot be undone.',
               [
                 {
                   text: 'Cancel',
                   style: 'cancel',
                 },
                 {
-                  text: 'Yes, Delete',
+                  text: 'Yes, Delete Forever',
                   style: 'destructive',
-                  onPress: () => {
-                    // TODO: Implement account deletion
-                    console.log('Delete account');
-                  },
+                  onPress: () => performAccountDeletion(),
                 },
               ]
             );
@@ -198,6 +219,61 @@ const ProfileScreen = ({ navigation }: any) => {
         },
       ]
     );
+  };
+
+  const performAccountDeletion = async () => {
+    if (!user) return;
+
+    try {
+      setIsLoading(true);
+      
+      const result = await deleteAccountService.deleteAccount(user.id);
+      
+      if (result.success) {
+        Alert.alert(
+          'Account Deleted',
+          result.message,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Navigate to welcome screen
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Welcome' }],
+                });
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Deletion Completed with Issues',
+          result.message + (result.errors ? '\n\nErrors:\n' + result.errors.join('\n') : ''),
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Still sign out even if there were errors
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Welcome' }],
+                });
+              },
+            },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Error during account deletion:', error);
+      Alert.alert(
+        'Deletion Failed',
+        'An unexpected error occurred. Please contact support if the issue persists.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubscription = () => {
@@ -415,8 +491,14 @@ const ProfileScreen = ({ navigation }: any) => {
             <Text style={styles.actionButtonText}>Sign Out</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.dangerButton} onPress={handleDeleteAccount}>
-            <Text style={styles.dangerButtonText}>Delete Account</Text>
+          <TouchableOpacity 
+            style={[styles.dangerButton, isLoading && styles.disabledButton]} 
+            onPress={handleDeleteAccount}
+            disabled={isLoading}
+          >
+            <Text style={styles.dangerButtonText}>
+              {isLoading ? 'Deleting Account...' : 'Delete Account'}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -674,6 +756,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '500',
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   timePickerOverlay: {
     position: 'absolute',

@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Linking } from 'react-native';
 import AppNavigator from './src/navigation/AppNavigator';
+import { SubscriptionProvider } from './src/contexts/SubscriptionContext';
 import { simpleNotificationService } from './src/services/notifications-simple';
 import { initializeStripe } from './src/services/payments';
 import { subscriptionService } from './src/services/subscriptions';
@@ -118,8 +119,10 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AppNavigator />
-      <StatusBar style="auto" />
+      <SubscriptionProvider>
+        <AppNavigator />
+        <StatusBar style="auto" />
+      </SubscriptionProvider>
     </GestureHandlerRootView>
   );
 }

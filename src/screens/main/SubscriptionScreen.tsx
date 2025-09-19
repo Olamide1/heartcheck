@@ -158,6 +158,48 @@ const SubscriptionScreen = ({ navigation }: any) => {
   };
 
 
+  const handleManageSubscription = async () => {
+    if (!currentUser) {
+      Alert.alert('Error', 'Please sign in to manage subscription');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const { url } = await subscriptionService.createCustomerPortalSession(currentUser.id);
+      
+      // Open Stripe customer portal in browser
+      const { Linking } = require('react-native');
+      await Linking.openURL(url);
+    } catch (error) {
+      console.error('Error opening customer portal:', error);
+      Alert.alert('Error', 'Failed to open billing management. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRestoreSubscription = async () => {
+    if (!currentUser) {
+      Alert.alert('Error', 'Please sign in to restore subscription');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      // For now, we'll refresh the subscription data
+      // In a real implementation, this would check with the App Store
+      await loadSubscriptionData();
+      Alert.alert('Success', 'Subscription data refreshed. If you have an active subscription, it should now be visible.');
+    } catch (error) {
+      console.error('Error restoring subscription:', error);
+      Alert.alert('Error', 'Failed to restore subscription. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
   const handleStartTrial = () => {
     if (!currentUser) {
       Alert.alert('Error', 'Please sign in to start trial');
@@ -295,6 +337,34 @@ const SubscriptionScreen = ({ navigation }: any) => {
                   <Text style={styles.statusSubtext}>Start your free trial today!</Text>
                 </>
               )}
+            </View>
+
+            {/* Subscription Management Actions */}
+            {subscriptionSummary.hasSubscription && !subscriptionSummary.isTrial && (
+              <View style={styles.managementSection}>
+                <Text style={styles.managementTitle}>Manage Subscription</Text>
+                <View style={styles.managementButtons}>
+                  <TouchableOpacity 
+                    style={styles.managementButton}
+                    onPress={handleManageSubscription}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.managementButtonText}>⚙️ Manage Billing</Text>
+                  </TouchableOpacity>
+                  
+                </View>
+              </View>
+            )}
+
+            {/* Restore Subscription Option */}
+            <View style={styles.restoreSection}>
+              <TouchableOpacity 
+                style={styles.restoreButton}
+                onPress={handleRestoreSubscription}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.restoreButtonText}>🔄 Restore Subscription</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -893,6 +963,56 @@ const styles = StyleSheet.create({
     color: Colors.textInverse,
     fontSize: Typography.fontSize.body,
     fontWeight: Typography.fontWeight.medium,
+  },
+  // Subscription Management Styles
+  managementSection: {
+    marginTop: Spacing.lg,
+    paddingTop: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  managementTitle: {
+    fontSize: Typography.fontSize.h4,
+    fontWeight: Typography.fontWeight.semiBold,
+    color: Colors.warmGrayText,
+    marginBottom: Spacing.md,
+  },
+  managementButtons: {
+    gap: Spacing.sm,
+  },
+  managementButton: {
+    backgroundColor: Colors.surface,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Layout.borderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    alignItems: 'center',
+  },
+  managementButtonText: {
+    fontSize: Typography.fontSize.body,
+    fontWeight: Typography.fontWeight.medium,
+    color: Colors.warmGrayText,
+  },
+  restoreSection: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  restoreButton: {
+    backgroundColor: 'transparent',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Layout.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.primarySage,
+    alignItems: 'center',
+  },
+  restoreButtonText: {
+    fontSize: Typography.fontSize.small,
+    fontWeight: Typography.fontWeight.medium,
+    color: Colors.primarySage,
   },
 });
 

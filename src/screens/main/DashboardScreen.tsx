@@ -12,10 +12,25 @@ import { Colors, Typography, Spacing, Layout } from '../../constants';
 import { auth, supabase } from '../../services/supabase';
 import { patternAlertsService } from '../../services/patternAlerts';
 import { guidedExercisesService } from '../../services/guidedExercises';
+import { useFeatureGate } from '../../hooks/useFeatureGate';
+import UpgradePrompt from '../../components/UpgradePrompt';
 
 const DashboardScreen = ({ navigation }: any) => {
+  // Feature gate for dashboard insights
+  const {
+    checkAccess,
+    showUpgradePrompt,
+    handleUpgrade,
+    handleClose,
+    hasAccess,
+    upgradeMessage
+  } = useFeatureGate({
+    feature: 'Dashboard Insights',
+    onUpgrade: () => {
+      // Navigation will be handled by the hook
+    }
+  });
 
-  
   // Get current time for greeting
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -42,6 +57,13 @@ const DashboardScreen = ({ navigation }: any) => {
     const fetchDashboardData = async () => {
       try {
         setIsLoading(true);
+        
+        // Check if user has access to this feature
+        if (!checkAccess()) {
+          setIsLoading(false);
+          return;
+        }
+        
         const { user, error: authError } = await auth.getCurrentUser();
         
         if (user) {
@@ -597,6 +619,16 @@ const DashboardScreen = ({ navigation }: any) => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Upgrade Prompt Modal */}
+      <UpgradePrompt
+        visible={showUpgradePrompt}
+        onClose={handleClose}
+        onUpgrade={handleUpgrade}
+        title="Dashboard Insights Require Premium"
+        message={upgradeMessage}
+        feature="Dashboard Insights"
+      />
     </SafeAreaView>
   );
 };

@@ -276,7 +276,7 @@ export class SubscriptionService {
   /**
    * Simulate upgrading to paid plan
    */
-  async upgradeToPlan(userId: string, plan: 'monthly' | 'annual'): Promise<UserSubscription> {
+  async upgradeToPlan(userId: string, plan: 'monthly' | 'annual', stripeCustomerId?: string): Promise<UserSubscription> {
     try {
       let currentSubscription = await this.getUserSubscription(userId);
       
@@ -297,16 +297,23 @@ export class SubscriptionService {
       }
 
       // Update subscription using database field names
+      const updateData: any = {
+        status: 'active',
+        plan: plan,
+        current_period_start: now.toISOString(),
+        current_period_end: periodEnd.toISOString(),
+        trial_end: null, // No more trial
+        updated_at: now.toISOString(),
+      };
+
+      // Add Stripe customer ID if provided
+      if (stripeCustomerId) {
+        updateData.stripe_customer_id = stripeCustomerId;
+      }
+
       const { data, error } = await supabase
         .from('subscriptions')
-        .update({
-          status: 'active',
-          plan: plan,
-          current_period_start: now.toISOString(),
-          current_period_end: periodEnd.toISOString(),
-          trial_end: null, // No more trial
-          updated_at: now.toISOString(),
-        })
+        .update(updateData)
         .eq('id', currentSubscription.id)
         .select()
         .single();
@@ -339,7 +346,7 @@ export class SubscriptionService {
   }
 
   /**
-   * Simulate canceling subscription
+   * Cancel subscription in both Stripe and database
    */
   async cancelSubscription(userId: string): Promise<void> {
     try {
@@ -348,6 +355,20 @@ export class SubscriptionService {
         throw new Error('No subscription found for user');
       }
 
+      // If we have a Stripe customer ID, cancel in Stripe first
+      if (subscription.stripeCustomerId) {
+        try {
+          await this.cancelStripeSubscription(subscription.stripeCustomerId);
+          console.log(`Stripe subscription canceled for user ${userId}`);
+        } catch (stripeError) {
+          console.error('Failed to cancel Stripe subscription:', stripeError);
+          // Continue with database update even if Stripe fails
+        }
+      } else {
+        console.log(`No Stripe customer ID found for user ${userId}, skipping Stripe cancellation`);
+      }
+
+      // Update database status
       const { error } = await supabase
         .from('subscriptions')
         .update({
@@ -357,13 +378,158 @@ export class SubscriptionService {
         .eq('id', subscription.id);
 
       if (error) {
-        console.error('Failed to cancel subscription:', error);
+        console.error('Failed to cancel subscription in database:', error);
         throw error;
       }
 
       console.log(`Subscription canceled for user ${userId}`);
     } catch (error) {
       console.error('Error canceling subscription:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel subscription in Stripe
+   */
+  private async cancelStripeSubscription(stripeCustomerId: string): Promise<void> {
+    try {
+      // Get the customer's subscriptions from Stripe
+      const response = await fetch('https://api.stripe.com/v1/customers/' + stripeCustomerId + '/subscriptions', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_STRIPE_SECRET_KEY}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`Failed to get Stripe subscriptions: ${response.status} ${errorData}`);
+      }
+
+      const subscriptions = await response.json();
+      
+      if (subscriptions.data && subscriptions.data.length > 0) {
+        // Cancel the first active subscription
+        const activeSubscription = subscriptions.data.find((sub: any) => sub.status === 'active');
+        
+        if (activeSubscription) {
+          const cancelResponse = await fetch(`https://api.stripe.com/v1/subscriptions/${activeSubscription.id}`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.EXPO_PUBLIC_STRIPE_SECRET_KEY}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'cancel_at_period_end=true', // Cancel at end of billing period
+          });
+
+          if (!cancelResponse.ok) {
+            const errorData = await cancelResponse.text();
+            throw new Error(`Failed to cancel Stripe subscription: ${cancelResponse.status} ${errorData}`);
+          }
+
+          console.log(`Stripe subscription ${activeSubscription.id} marked for cancellation`);
+        }
+      }
+    } catch (error) {
+      console.error('Error canceling Stripe subscription:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get Stripe customer billing management URL
+   */
+  async createCustomerPortalSession(userId: string): Promise<{ url: string }> {
+    try {
+      const subscription = await this.getUserSubscription(userId);
+      if (!subscription) {
+        throw new Error('No subscription found for user');
+      }
+
+      let stripeCustomerId = subscription.stripeCustomerId;
+
+      // If no Stripe customer ID exists, create one
+      if (!stripeCustomerId) {
+        console.log('No Stripe customer ID found, creating new customer...');
+        stripeCustomerId = await this.createStripeCustomer(userId);
+        
+        // Update subscription with new customer ID
+        await supabase
+          .from('subscriptions')
+          .update({ 
+            stripe_customer_id: stripeCustomerId,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', subscription.id);
+        
+        console.log(`Created and stored Stripe customer ID: ${stripeCustomerId}`);
+      }
+
+      // Get user email for prefilling
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', userId)
+        .single();
+
+      // Use direct Stripe customer billing link with prefilled email
+      const billingUrl = userProfile?.email 
+        ? `https://billing.stripe.com/p/login/3cI14ofrjdqraD01hSejK00?prefilled_email=${encodeURIComponent(userProfile.email)}`
+        : 'https://billing.stripe.com/p/login/3cI14ofrjdqraD01hSejK00';
+      
+      console.log('Using direct Stripe billing link:', billingUrl);
+      
+      return { url: billingUrl };
+    } catch (error) {
+      console.error('Error creating customer portal session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a Stripe customer for the user
+   */
+  private async createStripeCustomer(userId: string): Promise<string> {
+    try {
+      // Get user profile for email
+      const { data: profile } = await supabase
+        .from('users')
+        .select('email, name')
+        .eq('id', userId)
+        .single();
+
+      if (!profile) {
+        throw new Error('User profile not found');
+      }
+
+      // Create Stripe customer
+      const formDataString = [
+        `email=${encodeURIComponent(profile.email)}`,
+        `name=${encodeURIComponent(profile.name || '')}`,
+        `metadata[user_id]=${encodeURIComponent(userId)}`,
+      ].join('&');
+
+      const response = await fetch('https://api.stripe.com/v1/customers', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formDataString,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`Failed to create Stripe customer: ${response.status} ${errorData}`);
+      }
+
+      const customer = await response.json();
+      console.log(`Stripe customer created: ${customer.id}`);
+      
+      return customer.id;
+    } catch (error) {
+      console.error('Error creating Stripe customer:', error);
       throw error;
     }
   }

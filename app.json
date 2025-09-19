@@ -2,7 +2,8 @@
   "expo": {
     "name": "HeartCheck Couples",
     "slug": "heartcheck-couples",
-    "version": "1.0.2",
+    "version": "1.1.0",
+    "sdkVersion": "54.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,26 +15,21 @@
     "assetBundlePatterns": [
       "assets/**/*"
     ],
-          "ios": {
-        "supportsTablet": true,
-        "bundleIdentifier": "com.theakomolafe.heartcheck",
-        "buildNumber": "1",
-        "infoPlist": {
-          "ITSAppUsesNonExemptEncryption": false,
-          "NSCameraUsageDescription": "HeartCheck may use the camera to capture photos for relationship memories and check-ins.",
-          "NSPhotoLibraryUsageDescription": "HeartCheck may access your photo library to select images for relationship memories and check-ins.",
-          "NSMicrophoneUsageDescription": "HeartCheck may use the microphone to record audio for relationship memories and check-ins.",
-          "NSLocationWhenInUseUsageDescription": "HeartCheck may use your location to provide location-based relationship insights and check-ins.",
-          "NSUserTrackingUsageDescription": "HeartCheck uses tracking to provide personalized relationship insights and recommendations."
-        }
-      },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.theakomolafe.heartcheck",
+      "buildNumber": "10",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FAFAFA"
       },
       "package": "com.theakomolafe.heartcheck",
-      "versionCode": 1
+      "versionCode": 10
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -44,6 +40,9 @@
         "projectId": "3166da20-d2d7-4a34-8f15-6af18ff8250c"
       }
     },
-    "owner": "theakomolafe"
+    "owner": "theakomolafe",
+    "plugins": [
+      "expo-font"
+    ]
   }
 }

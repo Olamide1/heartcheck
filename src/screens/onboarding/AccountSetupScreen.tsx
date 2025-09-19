@@ -197,7 +197,15 @@ const AccountSetupScreen = ({ navigation, route }: any) => {
 
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => navigation.goBack()}
+              onPress={() => {
+                // If we can go back, do that. Otherwise, this is the first screen in onboarding
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  // If this is the first screen in onboarding, sign out to go back to Welcome
+                  auth.signOut();
+                }
+              }}
               activeOpacity={0.8}
             >
               <Text style={styles.backButtonText}>← Back to Welcome</Text>

@@ -14,6 +14,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase, db } from '../../services/supabase';
 import { CheckIn } from '../../types';
+import { useFeatureGate } from '../../hooks/useFeatureGate';
+import UpgradePrompt from '../../components/UpgradePrompt';
 
 const { width } = Dimensions.get('window');
 
@@ -26,6 +28,21 @@ const DailyCheckInScreen = () => {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [currentCouple, setCurrentCouple] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Feature gate for daily check-ins
+  const {
+    checkAccess,
+    showUpgradePrompt,
+    handleUpgrade,
+    handleClose,
+    hasAccess,
+    upgradeMessage
+  } = useFeatureGate({
+    feature: 'Daily Check-ins',
+    onUpgrade: () => {
+      // Navigation will be handled by the hook
+    }
+  });
 
   // Load user and couple data when component mounts
   useEffect(() => {
@@ -78,6 +95,11 @@ const DailyCheckInScreen = () => {
   };
 
   const handleSubmit = async () => {
+    // Check if user has access to this feature
+    if (!checkAccess()) {
+      return;
+    }
+
     // Validate form data
     if (moodRating === 0 || connectionRating === 0 || !reflection.trim()) {
       Alert.alert('Missing Information', 'Please complete all fields before submitting.');
@@ -422,6 +444,16 @@ const DailyCheckInScreen = () => {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Upgrade Prompt Modal */}
+      <UpgradePrompt
+        visible={showUpgradePrompt}
+        onClose={handleClose}
+        onUpgrade={handleUpgrade}
+        title="Daily Check-ins Require Premium"
+        message={upgradeMessage}
+        feature="Daily Check-ins"
+      />
     </SafeAreaView>
   );
 };
