@@ -487,6 +487,13 @@ const ProfileScreen = ({ navigation }: any) => {
 
         {/* Actions */}
         <View style={styles.section}>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => navigation.navigate('Legal')}
+          >
+            <Text style={styles.actionButtonText}>Legal & Sources</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.actionButton} onPress={handleSignOut}>
             <Text style={styles.actionButtonText}>Sign Out</Text>
           </TouchableOpacity>

@@ -22,6 +22,7 @@ import ProfileScreen from '../screens/main/ProfileScreen';
 import SubscriptionScreen from '../screens/main/SubscriptionScreen';
 import InvitePartnerScreen from '../screens/main/InvitePartnerScreen';
 import ExerciseDetailScreen from '../screens/main/ExerciseDetailScreen';
+import LegalScreen from '../screens/main/LegalScreen';
 
 const Stack = createStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -219,19 +220,11 @@ const AppNavigator = () => {
       }
     };
 
-    // Timeout guard: never let loading hang forever
-    const runWithTimeout = async (fn: () => Promise<void>, timeoutMs = 8000) => {
-      try {
-        await Promise.race([
-          fn(),
-          new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
-        ]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    runWithTimeout(checkAuth);
+    // Run auth check without racing timeout to avoid flicker on resume
+    (async () => {
+      await checkAuth();
+      setIsLoading(false);
+    })();
 
     // Listen for auth changes
     const { data: { subscription } } = auth.onAuthStateChange(async (event, session) => {
@@ -302,7 +295,10 @@ const AppNavigator = () => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
         console.log('App returned to foreground - re-checking auth');
         setIsLoading(true);
-        runWithTimeout(checkAuth, 8000);
+        (async () => {
+          await checkAuth();
+          setIsLoading(false);
+        })();
       }
       appState.current = nextAppState;
     };
@@ -354,6 +350,7 @@ const AppNavigator = () => {
             <Stack.Screen name="Subscription" component={SubscriptionScreen} />
             <Stack.Screen name="InvitePartner" component={InvitePartnerScreen} />
             <Stack.Screen name="ExerciseDetail" component={ExerciseDetailScreen} />
+            <Stack.Screen name="Legal" component={LegalScreen} />
           </>
         )}
       </Stack.Navigator>

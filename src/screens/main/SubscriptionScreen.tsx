@@ -13,6 +13,8 @@ import {
 import { Colors, Typography, Spacing, Layout } from '../../constants';
 import { subscriptionService } from '../../services/subscriptions';
 import { paymentService, initializeStripe } from '../../services/payments';
+import { Platform } from 'react-native';
+import { iapService, IAP_PRODUCT_IDS } from '../../services/iap';
 import { supabase } from '../../services/supabase';
 import { Linking } from 'react-native';
 
@@ -65,9 +67,13 @@ const SubscriptionScreen = ({ navigation }: any) => {
 
   const initializeApp = async () => {
     try {
-      // Initialize Stripe
-      const stripeReady = await initializeStripe();
-      setStripeInitialized(stripeReady);
+      // iOS: initialize StoreKit; Android/Web: initialize Stripe
+      if (Platform.OS === 'ios') {
+        await iapService.initialize();
+      } else {
+        const stripeReady = await initializeStripe();
+        setStripeInitialized(stripeReady);
+      }
       
       // Load subscription data
       await loadSubscriptionData();
@@ -112,6 +118,22 @@ const SubscriptionScreen = ({ navigation }: any) => {
   const handleSubscribe = async (plan: 'monthly' | 'annual') => {
     if (!currentUser) {
       Alert.alert('Error', 'Please sign in to subscribe');
+      return;
+    }
+
+    // iOS → StoreKit; Android → Stripe
+    if (Platform.OS === 'ios') {
+      try {
+        const productId = plan === 'monthly' ? IAP_PRODUCT_IDS.monthly : IAP_PRODUCT_IDS.yearly;
+        await iapService.requestSubscription(productId);
+        // Immediately reflect locally; server receipt validation optional later
+        await subscriptionService.upgradeToPlan(currentUser.id, plan);
+        await loadSubscriptionData();
+        Alert.alert('Success', 'Your subscription is now active.');
+      } catch (error) {
+        console.error('IAP subscribe error:', error);
+        Alert.alert('Error', 'Purchase was not completed.');
+      }
       return;
     }
 
@@ -187,10 +209,23 @@ const SubscriptionScreen = ({ navigation }: any) => {
 
     try {
       setIsLoading(true);
-      // For now, we'll refresh the subscription data
-      // In a real implementation, this would check with the App Store
-      await loadSubscriptionData();
-      Alert.alert('Success', 'Subscription data refreshed. If you have an active subscription, it should now be visible.');
+      if (Platform.OS === 'ios') {
+        const purchases = await iapService.restorePurchases();
+        const hasMonthly = purchases.some((p: any) => p.productId === IAP_PRODUCT_IDS.monthly);
+        const hasYearly = purchases.some((p: any) => p.productId === IAP_PRODUCT_IDS.yearly);
+        if (hasMonthly || hasYearly) {
+          const plan = hasYearly ? 'annual' : 'monthly';
+          await subscriptionService.upgradeToPlan(currentUser.id, plan);
+          await loadSubscriptionData();
+          Alert.alert('Success', 'Purchases restored.');
+        } else {
+          await loadSubscriptionData();
+          Alert.alert('No Purchases', 'No active subscriptions were found to restore.');
+        }
+      } else {
+        await loadSubscriptionData();
+        Alert.alert('Success', 'Subscription data refreshed.');
+      }
     } catch (error) {
       console.error('Error restoring subscription:', error);
       Alert.alert('Error', 'Failed to restore subscription. Please try again.');
@@ -340,7 +375,7 @@ const SubscriptionScreen = ({ navigation }: any) => {
             </View>
 
             {/* Subscription Management Actions */}
-            {subscriptionSummary.hasSubscription && !subscriptionSummary.isTrial && (
+            {Platform.OS !== 'ios' && subscriptionSummary.hasSubscription && !subscriptionSummary.isTrial && (
               <View style={styles.managementSection}>
                 <Text style={styles.managementTitle}>Manage Subscription</Text>
                 <View style={styles.managementButtons}>
@@ -555,14 +590,14 @@ const SubscriptionScreen = ({ navigation }: any) => {
         <View style={styles.trustSection}>
           <View style={styles.trustItem}>
             <Text style={styles.trustIcon}>🔒</Text>
-            <Text style={styles.trustText}>Secure payment processing</Text>
+            <Text style={styles.trustText}>
+              {Platform.OS === 'ios' ? 'Purchases handled by Apple' : 'Secure payment processing'}
+            </Text>
           </View>
-          
           <View style={styles.trustItem}>
             <Text style={styles.trustIcon}>💳</Text>
             <Text style={styles.trustText}>Cancel anytime</Text>
           </View>
-          
           <View style={styles.trustItem}>
             <Text style={styles.trustIcon}>📱</Text>
             <Text style={styles.trustText}>Works on all devices</Text>

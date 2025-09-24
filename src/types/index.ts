@@ -168,6 +168,7 @@ export type RootStackParamList = {
   Settings: undefined;
   InvitePartner: undefined;
   ExerciseDetail: { exerciseId: string };
+  Legal: undefined;
 };
 
 export type MainTabParamList = {

@@ -12,6 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Typography, Spacing, Layout } from '../../constants';
 import { guidedExercisesService } from '../../services/guidedExercises';
 import { GuidedExercise } from '../../types';
+import DisclaimerNote from '../../components/DisclaimerNote';
 
 const ExerciseDetailScreen = ({ route, navigation }: any) => {
   const { exerciseId } = route.params;
@@ -151,6 +152,9 @@ const ExerciseDetailScreen = ({ route, navigation }: any) => {
             </View>
           )}
         </View>
+
+        {/* Disclaimer */}
+        <DisclaimerNote style={{ marginBottom: 16 }} />
 
         {/* Start Button */}
         <TouchableOpacity

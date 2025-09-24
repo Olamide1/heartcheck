@@ -2,7 +2,7 @@
   "expo": {
     "name": "HeartCheck Couples",
     "slug": "heartcheck-couples",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.theakomolafe.heartcheck",
-      "buildNumber": "14",
+      "buildNumber": "15",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "This app does not use camera functionality, but some third-party libraries may reference camera APIs."
@@ -30,7 +30,7 @@
         "backgroundColor": "#FAFAFA"
       },
       "package": "com.theakomolafe.heartcheck",
-      "versionCode": 14
+      "versionCode": 15
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -43,7 +43,8 @@
     },
     "owner": "theakomolafe",
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "react-native-iap"
     ]
   }
 }

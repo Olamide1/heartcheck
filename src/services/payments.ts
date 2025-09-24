@@ -55,14 +55,14 @@ export class PaymentService {
         `line_items[0][price]=${encodeURIComponent(priceId)}`,
         `line_items[0][quantity]=1`,
         `mode=subscription`,
-        `success_url=${encodeURIComponent(`https://playful-blancmange-bf370c.netlify.app/payment-success?plan=${plan}&user_id=${userId || ''}`)}`,
-        `cancel_url=${encodeURIComponent('https://playful-blancmange-bf370c.netlify.app/payment-cancel')}`,
+        `success_url=${encodeURIComponent(`https://heartcheck.xyz/payment-success?plan=${plan}&user_id=${userId || ''}`)}`,
+        `cancel_url=${encodeURIComponent('https://heartcheck.xyz/payment-cancel')}`,
         `metadata[plan]=${encodeURIComponent(plan)}`,
         `metadata[service]=${encodeURIComponent('heartcheck_coaching')}`
       ].join('&');
       
       console.log('Stripe request body:', formDataString);
-      console.log('Success URL being sent:', `https://playful-blancmange-bf370c.netlify.app/payment-success?plan=${plan}&user_id=${userId || ''}`);
+      console.log('Success URL being sent:', `https://heartcheck.xyz/payment-success?plan=${plan}&user_id=${userId || ''}`);
       
       const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
         method: 'POST',
